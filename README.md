@@ -50,7 +50,7 @@ ssh-x-term/
 
 1. Clone this repository:
    ```
-   git clone https://github.com/your-username/ssh-x-term.git
+   git clone https://github.com/eugeniofciuvasile/ssh-x-term.git
    cd ssh-x-term
    ```
 
