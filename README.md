@@ -2,6 +2,8 @@
 
 SSH-X-Term is a terminal-based SSH client with a text-based user interface (TUI) built using the Bubble Tea framework. It allows you to manage SSH connections, connect to remote servers, and provides a seamless terminal experience within your terminal.
 
+![image](https://github.com/user-attachments/assets/a545d09b-2101-4c6d-b5b9-377b2d554d57)
+
 ## Features
 
 - Manage SSH connections with a user-friendly interface
@@ -44,7 +46,7 @@ ssh-x-term/
 
 ### Prerequisites
 
-- Go 1.18 or higher
+- Go 1.24 or higher
 
 ### Building from source
 
