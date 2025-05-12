@@ -3,7 +3,7 @@ name: Go Release
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
 
 jobs:
   release:
@@ -21,26 +21,27 @@ jobs:
     - name: Determine next available tag
       id: get_next_tag
       run: |
-        # Get latest tag or default to v0.0.0
+        # Get latest tag or default to v0.0.0 if no tags exist
         latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || echo "v0.0.0")
-        clean_tag="${latest_tag#v}"
+        
+        # If no tags exist, start from v0.0.1
+        if [ "$latest_tag" == "v0.0.0" ]; then
+          new_tag="v0.0.1"
+        else
+          clean_tag="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "$clean_tag"
 
-        # Parse the version numbers
-        IFS='.' read -r major minor patch <<< "$clean_tag"
+          # Ensure that patch is always an integer
+          if [ -z "$patch" ]; then
+            patch=0
+          fi
 
-        # Ensure that patch is always an integer
-        if [ -z "$patch" ]; then
-          patch=0
-        fi
-
-        while true; do
+          # Increment patch version
           patch=$((patch + 1))
           new_tag="v$major.$minor.$patch"
-          if ! git rev-parse "$new_tag" >/dev/null 2>&1; then
-            echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
-            break
-          fi
-        done
+        fi
+
+        echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
     - name: Set git user
       run: |
@@ -56,8 +57,13 @@ jobs:
       run: |
         mkdir -p dist
 
+        # Linux
         GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/ssh-x-term
+
+        # Windows
         GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/ssh-x-term
+
+        # macOS
         GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/ssh-x-term
 
     - name: Create GitHub Release
