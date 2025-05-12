@@ -45,16 +45,27 @@ jobs:
         git tag ${{ steps.bump_version.outputs.new_tag }}
         git push origin ${{ steps.bump_version.outputs.new_tag }}
 
-    - name: Build Go binary
+    - name: Build Go binaries for multiple platforms
       run: |
         mkdir -p dist
-        go build -o dist/ssh-x-term ./cmd/ssh-x-term
+
+        # Linux
+        GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/ssh-x-term
+
+        # Windows
+        GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/ssh-x-term
+
+        # macOS
+        GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/ssh-x-term
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.bump_version.outputs.new_tag }}
         name: Release ${{ steps.bump_version.outputs.new_tag }}
-        files: dist/ssh-x-term
+        files: |
+          dist/ssh-x-term-linux-amd64
+          dist/ssh-x-term-windows-amd64.exe
+          dist/ssh-x-term-darwin-amd64
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
