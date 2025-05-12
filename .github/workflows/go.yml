@@ -22,16 +22,17 @@ jobs:
       id: get_tag
       run: |
         latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-        echo "Latest tag: $latest_tag"
+        # Strip the leading 'v' to extract numbers
+        clean_tag="${latest_tag#v}"
         echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+        echo "clean_tag=$clean_tag" >> $GITHUB_OUTPUT
 
     - name: Bump patch version
       id: bump_version
       run: |
-        IFS='.' read -r major minor patch <<<"${{ steps.get_tag.outputs.latest_tag#v }}"
+        IFS='.' read -r major minor patch <<<"${{ steps.get_tag.outputs.clean_tag }}"
         patch=$((patch + 1))
         new_tag="v$major.$minor.$patch"
-        echo "New tag: $new_tag"
         echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
     - name: Set git user
