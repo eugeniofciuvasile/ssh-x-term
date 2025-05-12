@@ -48,13 +48,13 @@ jobs:
     - name: Build Go binary
       run: |
         mkdir -p dist
-        go build -o dist/myapp ./...
+        go build -o dist/ssh-x-term ./cmd/ssh-x-term
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.bump_version.outputs.new_tag }}
         name: Release ${{ steps.bump_version.outputs.new_tag }}
-        files: dist/myapp
+        files: dist/ssh-x-term
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
