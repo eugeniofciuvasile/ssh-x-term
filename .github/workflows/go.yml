@@ -1,28 +1,59 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
-name: Go
+name: Go Release
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:  # Manual trigger
 
 jobs:
-
-  build:
+  release:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version: '1.24.2'
 
-    - name: Build
-      run: go build -v ./...
+    - name: Get latest tag
+      id: get_tag
+      run: |
+        latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+        echo "Latest tag: $latest_tag"
+        echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
 
-    - name: Test
-      run: go test -v ./...
+    - name: Bump patch version
+      id: bump_version
+      run: |
+        IFS='.' read -r major minor patch <<<"${{ steps.get_tag.outputs.latest_tag#v }}"
+        patch=$((patch + 1))
+        new_tag="v$major.$minor.$patch"
+        echo "New tag: $new_tag"
+        echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+    - name: Set git user
+      run: |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+
+    - name: Create and push new tag
+      run: |
+        git tag ${{ steps.bump_version.outputs.new_tag }}
+        git push origin ${{ steps.bump_version.outputs.new_tag }}
+
+    - name: Build Go binary
+      run: |
+        mkdir -p dist
+        go build -o dist/myapp ./...
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.bump_version.outputs.new_tag }}
+        name: Release ${{ steps.bump_version.outputs.new_tag }}
+        files: dist/myapp
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
