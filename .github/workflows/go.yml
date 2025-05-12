@@ -3,7 +3,7 @@ name: Go Release
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
 
 jobs:
   release:
@@ -18,22 +18,23 @@ jobs:
       with:
         go-version: '1.24.2'
 
-    - name: Get latest tag
-      id: get_tag
+    - name: Determine next available tag
+      id: get_next_tag
       run: |
-        latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-        # Strip the leading 'v' to extract numbers
+        # Get latest tag or default to v0.0.0
+        latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || echo "v0.0.0")
         clean_tag="${latest_tag#v}"
-        echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
-        echo "clean_tag=$clean_tag" >> $GITHUB_OUTPUT
 
-    - name: Bump patch version
-      id: bump_version
-      run: |
-        IFS='.' read -r major minor patch <<<"${{ steps.get_tag.outputs.clean_tag }}"
-        patch=$((patch + 1))
-        new_tag="v$major.$minor.$patch"
-        echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+        IFS='.' read -r major minor patch <<< "$clean_tag"
+
+        while true; do
+          patch=$((patch + 1))
+          new_tag="v$major.$minor.$patch"
+          if ! git rev-parse "$new_tag" >/dev/null 2>&1; then
+            echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+            break
+          fi
+        done
 
     - name: Set git user
       run: |
@@ -42,27 +43,22 @@ jobs:
 
     - name: Create and push new tag
       run: |
-        git tag ${{ steps.bump_version.outputs.new_tag }}
-        git push origin ${{ steps.bump_version.outputs.new_tag }}
+        git tag ${{ steps.get_next_tag.outputs.new_tag }}
+        git push origin ${{ steps.get_next_tag.outputs.new_tag }}
 
     - name: Build Go binaries for multiple platforms
       run: |
         mkdir -p dist
 
-        # Linux
         GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/ssh-x-term
-
-        # Windows
         GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/ssh-x-term
-
-        # macOS
         GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/ssh-x-term
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ steps.bump_version.outputs.new_tag }}
-        name: Release ${{ steps.bump_version.outputs.new_tag }}
+        tag_name: ${{ steps.get_next_tag.outputs.new_tag }}
+        name: Release ${{ steps.get_next_tag.outputs.new_tag }}
         files: |
           dist/ssh-x-term-linux-amd64
           dist/ssh-x-term-windows-amd64.exe
