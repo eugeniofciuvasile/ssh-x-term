@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"ssh-x-term/internal/config"
 	"ssh-x-term/internal/ui/components"
@@ -87,8 +88,8 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				return m.terminal.Init()
 			} else {
 				/*
-					SSH session in another windows terminal
-					Build SSH command
+				   SSH session in another tmux window
+				   Build SSH command
 				*/
 				sshArgs := []string{}
 				if conn.KeyFile != "" {
@@ -100,11 +101,17 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
 				sshArgs = append(sshArgs, userHost)
 
-				// Launch Windows Terminal with SSH command
-				cmd := exec.Command("wt.exe", append([]string{"new-tab -p Ubuntu wsl", "ssh"}, sshArgs...)...)
+				// Build full SSH command
+				sshCommand := fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
+
+				// Sanitize and build tmux window name: "user@host:port - ConnectionName"
+				windowName := fmt.Sprintf("%s@%s:%d - %s", conn.Username, conn.Host, conn.Port, conn.Name)
+
+				// Launch tmux new window with name and SSH command
+				cmd := exec.Command("tmux", "new-window", "-n", windowName, sshCommand)
 				err := cmd.Start()
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error launching Windows Terminal: %v\n", err)
+					fmt.Fprintf(os.Stderr, "Error launching tmux window: %v\n", err)
 				}
 
 				// Optional: Warn if password use is enabled
