@@ -62,7 +62,11 @@ func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 
 	// Set up list
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "SSH Connections"
+	if config.IsTmuxAvailable {
+		l.Title = "SSH Connections - Toggle open in new terminal [x]"
+	} else {
+		l.Title = "SSH Connections - Toggle open in new terminal [ ]"
+	}
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = titleStyle
@@ -100,7 +104,7 @@ func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 		list:              l,
 		connections:       connections,
 		highlightedConn:   highlighted,
-		openInNewTerminal: false, // Default state of the checkbox
+		openInNewTerminal: config.IsTmuxAvailable, // Default state of the checkbox
 	}
 }
 
@@ -146,7 +150,7 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cl.openInNewTerminal {
 				checkboxStr = "[x]"
 			}
-			cl.list.Title = fmt.Sprintf("SSH Connections - ToggleOpenInNewTerminal %s", checkboxStr)
+			cl.list.Title = fmt.Sprintf("SSH Connections - Toggle open in new terminal %s", checkboxStr)
 		}
 	}
 

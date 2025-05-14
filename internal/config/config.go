@@ -19,6 +19,8 @@ type ConfigManager struct {
 	Config     *Config
 }
 
+var IsTmuxAvailable bool = false
+
 // NewConfigManager creates a new configuration manager
 func NewConfigManager() (*ConfigManager, error) {
 	homeDir, err := os.UserHomeDir()
