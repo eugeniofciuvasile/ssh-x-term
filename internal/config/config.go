@@ -67,6 +67,16 @@ func (cm *ConfigManager) Save() error {
 	return nil
 }
 
+func (cm *ConfigManager) EditConnection(conn SSHConnection) error {
+	for i, existing := range cm.Config.Connections {
+		if existing.ID == conn.ID {
+			cm.Config.Connections[i] = conn
+			return cm.Save()
+		}
+	}
+	return fmt.Errorf("connection with ID %s not found", conn.ID)
+}
+
 func (cm *ConfigManager) AddConnection(conn SSHConnection) error {
 	for i, existing := range cm.Config.Connections {
 		if existing.ID == conn.ID {

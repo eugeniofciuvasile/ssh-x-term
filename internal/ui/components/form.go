@@ -73,7 +73,7 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	// Port input
 	inputs[2] = textinput.New()
 	inputs[2].Placeholder = "Port (default: 22)"
-	inputs[2].Width = 10
+	inputs[2].Width = 40
 	inputs[2].Prompt = "> "
 
 	// Username input
@@ -194,7 +194,11 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+p":
 			// Toggle between password and key authentication
 			m.usePassword = !m.usePassword
-
+			if m.usePassword {
+				m.inputs[4].SetValue("")
+			} else {
+				m.inputs[5].SetValue("")
+			}
 		}
 	}
 
@@ -309,6 +313,9 @@ func (m *ConnectionForm) updateConnection() {
 			strconv.FormatInt(time.Now().UnixNano(), 10)
 		m.inputs[6].SetValue(id)
 	}
+
+	// Debug print
+	fmt.Printf("DEBUG: Submitting connection with ID: %s (editing: %v)\n", id, m.editing)
 
 	// Parse port
 	port := 22

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -76,6 +77,25 @@ func (m *Model) LoadConnections() {
 		}
 		m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
 	}
+}
+
+func getTempKeyFile(conn config.SSHConnection) (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(usr.HomeDir, ".ssh", "xterm_keys")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	keyPath := filepath.Join(dir, fmt.Sprintf("id_%s", conn.Name))
+	if err := os.WriteFile(keyPath, []byte(conn.Password), 0600); err != nil {
+		return "", err
+	}
+	if conn.PublicKey != "" {
+		_ = os.WriteFile(keyPath+".pub", []byte(conn.PublicKey), 0644)
+	}
+	return keyPath, nil
 }
 
 func (m *Model) getActiveComponent() tea.Model {
@@ -286,68 +306,113 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		m.connectionList = model.(*components.ConnectionList)
 		if conn := m.connectionList.SelectedConnection(); conn != nil {
 			openInNewWindow := m.connectionList.OpenInNewTerminal()
-
 			isWindows := runtime.GOOS == "windows"
+			var keyPath string
+
+			// If using key-based authentication, persist private key to a temp file for ssh -i
+			if !conn.UsePassword && conn.Password != "" {
+				var err error
+				keyPath, err = getTempKeyFile(*conn)
+				if err != nil {
+					m.errorMessage = fmt.Sprintf("Failed to write key file: %s", err)
+					return nil
+				}
+			}
+
+			// Construct ssh arguments for both inline and new window
+			sshArgs := []string{}
+			if !conn.UsePassword && keyPath != "" {
+				sshArgs = append(sshArgs, "-i", keyPath)
+			}
+			if conn.Port != 22 && conn.Port != 0 {
+				sshArgs = append(sshArgs, "-p", strconv.Itoa(conn.Port))
+			}
+			userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
+			sshArgs = append(sshArgs, userHost)
 
 			if !isWindows {
-				// Unix-like
+				// ----------- Unix-like platforms -----------
 				if openInNewWindow {
-					sshArgs := []string{}
-					if conn.KeyFile != "" {
-						sshArgs = append(sshArgs, "-i", filepath.Clean(conn.KeyFile))
-					}
-					if conn.Port != 22 && conn.Port != 0 {
-						sshArgs = append(sshArgs, "-p", strconv.Itoa(conn.Port))
-					}
-					userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
-					sshArgs = append(sshArgs, userHost)
+					// Use tmux new-window for launching external ssh session
+					var sshCommand string
+					useSshpass := false
 
-					sshCommand := fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
+					if conn.UsePassword && conn.Password != "" {
+						if _, err := exec.LookPath("sshpass"); err == nil {
+							useSshpass = true
+							sshCommand = fmt.Sprintf(
+								"sshpass -p %q ssh %s",
+								conn.Password,
+								strings.Join(sshArgs, " "),
+							)
+						} else {
+							tea.Println("sshpass not found, falling back to manual password entry or key-based login.")
+							sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
+						}
+					} else {
+						sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
+					}
+
 					windowName := fmt.Sprintf("%s@%s:%d - %s", conn.Username, conn.Host, conn.Port, conn.Name)
 					cmd := exec.Command("tmux", "new-window", "-n", windowName, sshCommand)
 					err := cmd.Start()
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Error launching tmux window: %v\n", err)
 					}
-					if conn.UsePassword && conn.Password != "" {
+					if conn.UsePassword && conn.Password != "" && !useSshpass {
 						tea.Println("Password authentication not supported in this mode. Use manual entry or key-based login.")
 					}
 					m.state = StateConnectionList
 					m.connectionList.Reset()
 					return nil
 				} else {
+					// Inline SSH session in TUI
 					m.terminal = components.NewTerminalComponent(*conn)
 					m.state = StateSSHTerminal
 					m.connectionList.Reset()
 					return m.terminal.Init()
 				}
 			} else {
-				// Windows
+				// ----------- Windows platforms -----------
 				if openInNewWindow {
-					sshArgs := []string{}
-					if conn.KeyFile != "" {
-						sshArgs = append(sshArgs, "-i", filepath.Clean(conn.KeyFile))
+					// Prefer plink.exe for password automation if available
+					usePlink := false
+					if conn.UsePassword && conn.Password != "" {
+						if _, err := exec.LookPath("plink.exe"); err == nil {
+							usePlink = true
+						}
 					}
-					if conn.Port != 22 && conn.Port != 0 {
-						sshArgs = append(sshArgs, "-p", strconv.Itoa(conn.Port))
-					}
-					userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
-					sshArgs = append(sshArgs, userHost)
 
-					cmd := exec.Command("cmd", "/C", "start", "", "ssh")
-					cmd.Args = append(cmd.Args, sshArgs...)
+					var cmd *exec.Cmd
+					if usePlink {
+						// Build plink command
+						plinkArgs := []string{"-ssh", userHost, "-pw", conn.Password}
+						if conn.Port != 22 && conn.Port != 0 {
+							plinkArgs = append(plinkArgs, "-P", strconv.Itoa(conn.Port))
+						}
+						if !conn.UsePassword && keyPath != "" {
+							plinkArgs = append(plinkArgs, "-i", keyPath)
+						}
+						cmd = exec.Command("cmd", "/C", "start", "", "plink.exe")
+						cmd.Args = append(cmd.Args, plinkArgs...)
+					} else {
+						// Fallback to OpenSSH on Windows
+						cmd = exec.Command("cmd", "/C", "start", "", "ssh")
+						cmd.Args = append(cmd.Args, sshArgs...)
+					}
 
 					err := cmd.Start()
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Error launching terminal: %v\n", err)
 					}
-					if conn.UsePassword && conn.Password != "" {
-						tea.Println("Password authentication not supported in this mode. Use manual entry or key-based login.")
+					if conn.UsePassword && conn.Password != "" && !usePlink {
+						tea.Println("Password authentication not supported in this mode. Use manual entry, key-based login, or install plink.exe.")
 					}
 					m.state = StateConnectionList
 					m.connectionList.Reset()
 					return nil
 				} else {
+					// Inline SSH session in TUI
 					m.terminal = components.NewTerminalComponent(*conn)
 					m.state = StateSSHTerminal
 					m.connectionList.Reset()
@@ -355,6 +420,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				}
 			}
 		}
+
 	case StateAddConnection, StateEditConnection:
 		m.connectionForm = model.(*components.ConnectionForm)
 		if m.connectionForm.IsCanceled() {
@@ -365,7 +431,13 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		}
 		if m.connectionForm.IsSubmitted() {
 			conn := m.connectionForm.Connection()
-			if err := m.storageBackend.AddConnection(conn); err != nil {
+			var err error
+			if m.state == StateEditConnection {
+				err = m.storageBackend.EditConnection(conn)
+			} else {
+				err = m.storageBackend.AddConnection(conn)
+			}
+			if err != nil {
 				m.errorMessage = fmt.Sprintf("Failed to save connection: %s", err)
 			} else {
 				m.connectionForm = nil
@@ -386,7 +458,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				}
 				m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
 			}
-			return nil // or try: return tea.ClearScreen
+			return nil
 		}
 
 	case StateSSHTerminal:
