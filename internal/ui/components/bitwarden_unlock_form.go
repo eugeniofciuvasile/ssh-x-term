@@ -17,6 +17,7 @@ func NewBitwardenUnlockForm() *BitwardenUnlockForm {
 	ti.Placeholder = "Vault Password"
 	ti.EchoMode = textinput.EchoPassword
 	ti.Focus()
+	ti.Width = 40
 	return &BitwardenUnlockForm{
 		passwordInput: ti,
 	}
