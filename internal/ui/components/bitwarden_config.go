@@ -67,7 +67,7 @@ func (f *BitwardenConfigForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return f, nil
 		case "tab", "down":
 			f.focusIndex++
-			if f.focusIndex > len(f.inputs) { // past Submit button
+			if f.focusIndex > len(f.inputs) {
 				f.focusIndex = 0
 			}
 		case "shift+tab", "up":
@@ -77,7 +77,6 @@ func (f *BitwardenConfigForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if f.focusIndex == len(f.inputs) {
-				// Submit button
 				if valid, err := f.validateForm(); valid {
 					f.submitted = true
 					return f, nil

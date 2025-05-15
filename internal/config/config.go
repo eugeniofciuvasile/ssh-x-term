@@ -13,7 +13,6 @@ const (
 	defaultConfigFileName = "ssh-x-term.json"
 )
 
-// ConfigManager implements the Storage interface for local file storage.
 type ConfigManager struct {
 	ConfigPath string
 	Config     *Config
@@ -21,7 +20,6 @@ type ConfigManager struct {
 
 var IsTmuxAvailable bool = false
 
-// NewConfigManager creates a new Config instance with default values.
 func NewConfigManager() (*ConfigManager, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -46,7 +44,7 @@ func (cm *ConfigManager) Load() error {
 	data, err := os.ReadFile(cm.ConfigPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil // Config file doesn't exist, use defaults
+			return nil
 		}
 		return fmt.Errorf("failed to read config file: %w", err)
 	}

@@ -92,7 +92,7 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 
 	// Key file input
 	inputs[5] = textinput.New()
-	inputs[5].Placeholder = "Path to SSH key (default: ~/.ssh/id_rsa)"
+	inputs[5].Placeholder = "Path to SSH key (example: ~/.ssh/id_rsa)"
 	inputs[5].Width = 60
 	inputs[5].Prompt = "> "
 

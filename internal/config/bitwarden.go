@@ -21,7 +21,7 @@ type BitwardenManager struct {
 	cfg        *BitwardenConfig
 	session    string
 	authed     bool
-	vaultMutex sync.Mutex // thread safety
+	vaultMutex sync.Mutex
 	items      map[string]SSHConnection
 }
 
@@ -109,7 +109,7 @@ func (bwm *BitwardenManager) Load() error {
 		return fmt.Errorf("bw list items failed: %s", stderr.String())
 	}
 
-	var allItems []map[string]interface{}
+	var allItems []map[string]any
 	if err := json.Unmarshal(out.Bytes(), &allItems); err != nil {
 		return fmt.Errorf("failed to parse bw list items JSON: %w", err)
 	}
@@ -126,17 +126,16 @@ func (bwm *BitwardenManager) Load() error {
 		if name, ok := item["name"].(string); ok {
 			conn.Name = name
 		}
-		// Host, Port, Username, Password/privatekey from login
-		login, ok := item["login"].(map[string]interface{})
+		login, ok := item["login"].(map[string]any)
 		if ok {
 			if username, ok := login["username"].(string); ok {
 				conn.Username = username
 			}
 			if password, ok := login["password"].(string); ok {
-				conn.Password = password // Could be password or private key
+				conn.Password = password
 			}
-			if uris, ok := login["uris"].([]interface{}); ok && len(uris) > 0 {
-				if first, ok := uris[0].(map[string]interface{}); ok {
+			if uris, ok := login["uris"].([]any); ok && len(uris) > 0 {
+				if first, ok := uris[0].(map[string]any); ok {
 					if uri, ok := first["uri"].(string); ok {
 						rest := strings.TrimPrefix(uri, "ssh://")
 						hostport := strings.Split(rest, ":")
@@ -152,10 +151,9 @@ func (bwm *BitwardenManager) Load() error {
 				}
 			}
 		}
-		// Custom fields: use_password
-		if fields, ok := item["fields"].([]interface{}); ok {
+		if fields, ok := item["fields"].([]any); ok {
 			for _, f := range fields {
-				if field, ok := f.(map[string]interface{}); ok {
+				if field, ok := f.(map[string]any); ok {
 					name, _ := field["name"].(string)
 					value, _ := field["value"].(string)
 					if strings.ToLower(name) == "use_password" {
@@ -164,7 +162,6 @@ func (bwm *BitwardenManager) Load() error {
 				}
 			}
 		}
-		// Public key in notes
 		if notes, ok := item["notes"].(string); ok && notes != "" {
 			conn.PublicKey = notes
 		}
@@ -209,19 +206,16 @@ func (bwm *BitwardenManager) ListConnections() []SSHConnection {
 	return conns
 }
 
-// PATCH: error reporting improved, KeyFileID logic fixed
 func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 	session, err := bwm.SessionKey()
 	if err != nil {
 		return err
 	}
 
-	// If UsePassword is false, we store the private key in login.password and public key in notes
 	publicKey := conn.PublicKey
 	privateKey := conn.Password
 
 	if !conn.UsePassword {
-		// --- PRIVATE KEY ---
 		if privateKey == "" && conn.KeyFile != "" {
 			expanded := ExpandPath(conn.KeyFile)
 			keyData, err := os.ReadFile(expanded)
@@ -234,7 +228,6 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 			}
 			privateKey = string(keyData)
 		}
-		// --- PUBLIC KEY ---
 		pubPath := ExpandPath(conn.KeyFile) + ".pub"
 		if publicKey == "" {
 			pubData, err := os.ReadFile(pubPath)
@@ -246,15 +239,13 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 					}
 					return fmt.Errorf("could not read public key file '%s': %v%s", pubPath, err, tip)
 				}
-				// It's OK if .pub does not exist
 			} else {
 				publicKey = string(pubData)
 			}
 		}
 	}
 
-	// Add use_password field as custom field
-	fields := []map[string]interface{}{
+	fields := []map[string]any{
 		{
 			"name":  "use_password",
 			"value": strconv.FormatBool(conn.UsePassword),
@@ -262,22 +253,22 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 		},
 	}
 
-	login := map[string]interface{}{
+	login := map[string]any{
 		"username": conn.Username,
-		"password": privateKey, // If UsePassword=true, this is the password. If false, this is the private key
-		"uris": []map[string]interface{}{
+		"password": privateKey,
+		"uris": []map[string]any{
 			{
 				"uri": fmt.Sprintf("ssh://%s:%d", conn.Host, conn.Port),
 			},
 		},
 	}
 
-	item := map[string]interface{}{
+	item := map[string]any{
 		"type":   1, // Login
 		"name":   conn.Name,
 		"login":  login,
 		"fields": fields,
-		"notes":  publicKey, // Store public key here
+		"notes":  publicKey,
 	}
 
 	itemJSON, err := json.Marshal(item)
@@ -313,12 +304,10 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 		return fmt.Errorf("missing Bitwarden item ID for edit")
 	}
 
-	// If UsePassword is false, we store the private key in login.password and public key in notes
 	publicKey := conn.PublicKey
 	privateKey := conn.Password
 
 	if !conn.UsePassword {
-		// --- PRIVATE KEY ---
 		if privateKey == "" && conn.KeyFile != "" {
 			expanded := ExpandPath(conn.KeyFile)
 			keyData, err := os.ReadFile(expanded)
@@ -331,7 +320,6 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 			}
 			privateKey = string(keyData)
 		}
-		// --- PUBLIC KEY ---
 		pubPath := ExpandPath(conn.KeyFile) + ".pub"
 		if publicKey == "" {
 			pubData, err := os.ReadFile(pubPath)
@@ -343,15 +331,13 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 					}
 					return fmt.Errorf("could not read public key file '%s': %v%s", pubPath, err, tip)
 				}
-				// It's OK if .pub does not exist
 			} else {
 				publicKey = string(pubData)
 			}
 		}
 	}
 
-	// Add use_password field as custom field
-	fields := []map[string]interface{}{
+	fields := []map[string]any{
 		{
 			"name":  "use_password",
 			"value": strconv.FormatBool(conn.UsePassword),
@@ -359,22 +345,22 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 		},
 	}
 
-	login := map[string]interface{}{
+	login := map[string]any{
 		"username": conn.Username,
-		"password": privateKey, // If UsePassword=true, this is the password. If false, this is the private key
-		"uris": []map[string]interface{}{
+		"password": privateKey,
+		"uris": []map[string]any{
 			{
 				"uri": fmt.Sprintf("ssh://%s:%d", conn.Host, conn.Port),
 			},
 		},
 	}
 
-	item := map[string]interface{}{
+	item := map[string]any{
 		"type":   1, // Login
 		"name":   conn.Name,
 		"login":  login,
 		"fields": fields,
-		"notes":  publicKey, // Store public key here
+		"notes":  publicKey,
 	}
 
 	itemJSON, err := json.Marshal(item)

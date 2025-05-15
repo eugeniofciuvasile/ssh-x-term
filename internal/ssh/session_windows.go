@@ -125,9 +125,6 @@ func (s *Session) Start() error {
 		return fmt.Errorf("failed to set terminal to raw mode: %w", err)
 	}
 
-	// CRITICAL: We do NOT use defer for terminal restoration here
-	// Instead, we explicitly restore when necessary
-
 	// Start shell
 	if err := s.session.Shell(); err != nil {
 		term.Restore(s.originalFd, s.originalTty)
