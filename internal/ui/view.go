@@ -25,26 +25,27 @@ var (
 func (m *Model) View() string {
 	var content strings.Builder
 
-	// Render header
 	content.WriteString(titleStyle.Render("SSH-X-Term"))
 	content.WriteString("\n")
 
-	// Render active component
 	if activeComponent := m.getActiveComponent(); activeComponent != nil {
+		defer func() {
+			if r := recover(); r != nil {
+				content.WriteString("\n")
+				content.WriteString(errorStyle.Render("Component error: invalid UI state"))
+			}
+		}()
 		content.WriteString(activeComponent.View())
 	} else {
 		content.WriteString("No active component")
 	}
 
-	// Render error message if any
 	if m.errorMessage != "" {
 		content.WriteString("\n")
 		content.WriteString(errorStyle.Render(m.errorMessage))
-		// Clear error after displaying it
 		m.errorMessage = ""
 	}
 
-	// Render footer with help text based on current state
 	content.WriteString("\n")
 	switch m.state {
 	case StateConnectionList:

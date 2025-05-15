@@ -19,6 +19,7 @@ func NewBitwardenLoginForm() *BitwardenLoginForm {
 	ti.Placeholder = "Password"
 	ti.EchoMode = textinput.EchoPassword
 	ti.Focus()
+	ti.Width = 40
 	return &BitwardenLoginForm{
 		passwordInput: ti,
 		stage:         0,
@@ -50,6 +51,7 @@ func (f *BitwardenLoginForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				f.otpInput.Placeholder = "2FA Code (if enabled, else leave blank)"
 				f.otpInput.CharLimit = 8
 				f.otpInput.Focus()
+				f.otpInput.Width = 40
 				return f, nil
 			} else if f.stage == 1 {
 				f.submitted = true

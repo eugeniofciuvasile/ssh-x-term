@@ -57,8 +57,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case msg.String() == "d":
 				selectedItem := m.connectionList.HighlightedConnection()
-				if selectedItem != nil && m.configManager != nil {
-					err := m.configManager.DeleteConnection(selectedItem.ID)
+				if selectedItem != nil && m.storageBackend != nil {
+					err := m.storageBackend.DeleteConnection(selectedItem.ID)
 					if err != nil {
 						m.errorMessage = err.Error()
 					} else {

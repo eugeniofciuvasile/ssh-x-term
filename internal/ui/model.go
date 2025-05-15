@@ -59,8 +59,18 @@ func (m *Model) Init() tea.Cmd {
 }
 
 func (m *Model) LoadConnections() {
-	if m.storageBackend != nil && m.connectionList != nil {
-		m.connectionList.SetConnections(m.storageBackend.ListConnections())
+	if m.storageBackend != nil {
+		if err := m.storageBackend.Load(); err != nil {
+			m.errorMessage = fmt.Sprintf("Failed to reload connections: %v", err)
+		}
+		width, height := m.width, m.height
+		if width <= 0 {
+			width = 60
+		}
+		if height <= 0 {
+			height = 20
+		}
+		m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, height)
 	}
 }
 
@@ -80,6 +90,9 @@ func (m *Model) getActiveComponent() tea.Model {
 		}
 		return m.connectionList
 	case StateAddConnection, StateEditConnection:
+		if m.connectionForm == nil {
+			return nil
+		}
 		return m.connectionForm
 	case StateSSHTerminal:
 		return m.terminal
@@ -211,7 +224,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			if height <= 0 {
 				height = 20
 			}
-			m.connectionList = components.NewConnectionList(nil, width, height)
+			if err := m.bitwardenManager.Load(); err != nil {
+				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden connections: %v", err)
+			}
+			m.connectionList = components.NewConnectionList(m.bitwardenManager.ListConnections(), width, height)
 			m.state = StateConnectionList
 			m.bitwardenLoginForm = nil
 			return nil
@@ -230,6 +246,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			password := m.bitwardenUnlockForm.Password()
 			if err := m.bitwardenManager.Unlock(password); err != nil {
 				m.bitwardenUnlockForm.SetError(fmt.Sprintf("Unlock failed: %v", err))
+				m.state = StateSelectStorage
+				m.bitwardenForm = nil
+				m.bitwardenUnlockForm = nil
+				m.storageSelect = components.NewStorageSelect()
 				return nil
 			}
 			m.storageBackend = m.bitwardenManager
@@ -240,7 +260,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			if height <= 0 {
 				height = 20
 			}
-			m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, height)
+			if err := m.bitwardenManager.Load(); err != nil {
+				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden connections: %v", err)
+			}
+			m.connectionList = components.NewConnectionList(m.bitwardenManager.ListConnections(), width, height)
 			m.state = StateConnectionList
 			m.bitwardenUnlockForm = nil
 			return nil
@@ -323,7 +346,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 	case StateAddConnection, StateEditConnection:
 		m.connectionForm = model.(*components.ConnectionForm)
 		if m.connectionForm.IsCanceled() {
-			m.connectionForm = nil // reset the connection form
+			m.connectionForm = nil
 			m.state = StateConnectionList
 			m.connectionList.Reset()
 			return nil
@@ -333,11 +356,23 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			if err := m.storageBackend.AddConnection(conn); err != nil {
 				m.errorMessage = fmt.Sprintf("Failed to save connection: %s", err)
 			} else {
-				m.LoadConnections()
+				m.connectionForm = nil
 				m.state = StateConnectionList
+				// Refresh connections
+				if err := m.storageBackend.Load(); err != nil {
+					m.errorMessage = fmt.Sprintf("Failed to reload connections: %s", err)
+				}
+				// Rebuild the list to show new connection
+				width, height := m.width, m.height
+				if width <= 0 {
+					width = 60
+				}
+				if height <= 0 {
+					height = 20
+				}
+				m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, height)
 			}
-			m.connectionForm = nil // reset the connection form after submit
-			m.connectionList.Reset()
+			m.connectionForm = nil
 			return nil
 		}
 

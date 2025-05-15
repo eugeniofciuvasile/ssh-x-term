@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -114,7 +115,7 @@ func (bwm *BitwardenManager) Load() error {
 		return fmt.Errorf("bw list items failed: %s", stderr.String())
 	}
 
-	var items []map[string]interface{}
+	var items []map[string]any
 	if err := json.Unmarshal(out.Bytes(), &items); err != nil {
 		return err
 	}
@@ -148,31 +149,89 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 	if err != nil {
 		return err
 	}
-	connBytes, err := json.Marshal(conn)
+
+	// First, serialize the entire connection to JSON for the notes field
+	connJSON, err := json.Marshal(conn)
 	if err != nil {
 		return err
 	}
-	item := map[string]interface{}{
-		"type":  2, // Secure Note
-		"name":  conn.Name,
-		"notes": string(connBytes),
-		"tags":  []string{sshNoteTagField},
+
+	// Compose fields array for additional metadata
+	fields := []map[string]any{}
+	if conn.KeyFile != "" {
+		fields = append(fields, map[string]any{
+			"name":  "keyfile",
+			"value": conn.KeyFile,
+			"type":  0,
+		})
 	}
-	itemBytes, err := json.Marshal(item)
+	if conn.Port != 22 {
+		fields = append(fields, map[string]any{
+			"name":  "port",
+			"value": strconv.Itoa(conn.Port),
+			"type":  0,
+		})
+	}
+
+	// Create login object
+	login := map[string]any{
+		"username": conn.Username,
+		"password": conn.Password,
+		"uris": []map[string]any{
+			{
+				"match": nil,
+				"uri":   fmt.Sprintf("ssh://%s", conn.Host),
+			},
+		},
+	}
+
+	// Create the item structure
+	item := map[string]any{
+		"type":       1, // Login type
+		"name":       conn.Name,
+		"notes":      string(connJSON),
+		"favorite":   false,
+		"fields":     fields,
+		"login":      login,
+		"secureNote": nil,
+		"card":       nil,
+		"identity":   nil,
+		"folderId":   nil,
+	}
+
+	// Add the tag
+	item["tags"] = []string{sshNoteTagField}
+
+	// Convert to JSON
+	itemJSON, err := json.Marshal(item)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("bw", "create", "item", "--session", session)
-	cmd.Stdin = bytes.NewReader(itemBytes)
-	var out, stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create Bitwarden item: %s", stderr.String())
+
+	// Use bw encode to properly format the data
+	encodeCmd := exec.Command("bw", "encode")
+	encodeCmd.Stdin = bytes.NewReader(itemJSON)
+	var encodedOutput, encodeErr bytes.Buffer
+	encodeCmd.Stdout = &encodedOutput
+	encodeCmd.Stderr = &encodeErr
+
+	if err := encodeCmd.Run(); err != nil {
+		return fmt.Errorf("failed to encode Bitwarden item: %s - %s", err, encodeErr.String())
 	}
-	// Optionally reload items to update the internal map
-	_ = bwm.Load()
-	return nil
+
+	// Now create the item with the encoded data
+	createCmd := exec.Command("bw", "create", "item", "--session", session)
+	createCmd.Stdin = bytes.NewReader(encodedOutput.Bytes())
+	var createOut, createErr bytes.Buffer
+	createCmd.Stdout = &createOut
+	createCmd.Stderr = &createErr
+
+	if err := createCmd.Run(); err != nil {
+		return fmt.Errorf("failed to create Bitwarden item: %s - %s", err, createErr.String())
+	}
+
+	// Reload items
+	return bwm.Load()
 }
 
 // DeleteConnection removes a connection by Bitwarden item ID
@@ -238,13 +297,13 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 	if err := cmdGet.Run(); err != nil {
 		return fmt.Errorf("could not fetch Bitwarden item: %s", errGet.String())
 	}
-	var item map[string]interface{}
+	var item map[string]any
 	if err := json.Unmarshal(outGet.Bytes(), &item); err != nil {
 		return err
 	}
 	item["notes"] = string(connBytes)
 	item["name"] = conn.Name
-	if tags, ok := item["tags"].([]interface{}); ok {
+	if tags, ok := item["tags"].([]any); ok {
 		found := false
 		for _, tag := range tags {
 			if tag.(string) == sshNoteTagField {
