@@ -24,22 +24,27 @@ const (
 	StateAddConnection
 	StateEditConnection
 	StateSSHTerminal
+	StateBitwardenLogin
+	StateBitwardenUnlock
 	headerLines = 4
 	footerLines = 4
 )
 
 type Model struct {
-	state          AppState
-	storageSelect  *components.StorageSelect
-	storageBackend config.Storage
-	configManager  *config.ConfigManager
-	width          int
-	height         int
-	connectionList *components.ConnectionList
-	connectionForm *components.ConnectionForm
-	terminal       *components.TerminalComponent
-	bitwardenForm  *components.BitwardenConfigForm
-	errorMessage   string
+	state               AppState
+	storageSelect       *components.StorageSelect
+	storageBackend      config.Storage
+	configManager       *config.ConfigManager
+	width               int
+	height              int
+	connectionList      *components.ConnectionList
+	connectionForm      *components.ConnectionForm
+	terminal            *components.TerminalComponent
+	bitwardenForm       *components.BitwardenConfigForm
+	errorMessage        string
+	bitwardenLoginForm  *components.BitwardenLoginForm
+	bitwardenManager    *config.BitwardenManager
+	bitwardenUnlockForm *components.BitwardenUnlockForm
 }
 
 func NewModel() *Model {
@@ -65,6 +70,10 @@ func (m *Model) getActiveComponent() tea.Model {
 		return m.storageSelect
 	case StateBitwardenConfig:
 		return m.bitwardenForm
+	case StateBitwardenLogin:
+		return m.bitwardenLoginForm
+	case StateBitwardenUnlock:
+		return m.bitwardenUnlockForm
 	case StateConnectionList:
 		if m.connectionList == nil {
 			return nil
@@ -116,8 +125,37 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				// Reset the storage select so it's clean if user comes back
 				m.storageSelect = components.NewStorageSelect()
 			case components.StorageBitwarden:
-				m.bitwardenForm = components.NewBitwardenConfigForm()
-				m.state = StateBitwardenConfig
+				bwm, err := config.NewBitwardenManager(&config.BitwardenConfig{})
+				if err != nil {
+					m.errorMessage = fmt.Sprintf("Error initializing Bitwarden: %s", err)
+					return nil
+				}
+				m.bitwardenManager = bwm
+				loggedIn, unlocked, err := bwm.Status()
+				if err != nil {
+					m.errorMessage = fmt.Sprintf("Error checking Bitwarden status: %s", err)
+					return nil
+				}
+				if !loggedIn {
+					m.bitwardenForm = components.NewBitwardenConfigForm()
+					m.state = StateBitwardenConfig
+				} else if !unlocked {
+					m.bitwardenUnlockForm = components.NewBitwardenUnlockForm()
+					m.state = StateBitwardenUnlock
+				} else {
+					// Already logged in and unlocked
+					m.storageBackend = m.bitwardenManager
+					width, height := m.width, m.height
+					if width <= 0 {
+						width = 60
+					}
+					if height <= 0 {
+						height = 20
+					}
+					m.connectionList = components.NewConnectionList(nil, width, height)
+					m.state = StateConnectionList
+				}
+				return nil
 			}
 		}
 		return nil
@@ -127,7 +165,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		if m.bitwardenForm.IsCanceled() {
 			m.bitwardenForm = nil
 			m.state = StateSelectStorage
-			m.storageSelect = components.NewStorageSelect() // <-- RESET!
+			m.storageSelect = components.NewStorageSelect()
 			return nil
 		}
 		if m.bitwardenForm.IsSubmitted() {
@@ -138,7 +176,34 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				m.bitwardenForm.ErrorMsg = err.Error()
 				return nil
 			}
-			m.storageBackend = bwm
+			m.bitwardenManager = bwm
+			m.bitwardenLoginForm = components.NewBitwardenLoginForm()
+			m.state = StateBitwardenLogin
+			return nil
+		}
+		return nil
+
+	case StateBitwardenLogin:
+		m.bitwardenLoginForm = model.(*components.BitwardenLoginForm)
+		if m.bitwardenLoginForm.IsCanceled() {
+			m.bitwardenLoginForm = nil
+			m.state = StateSelectStorage
+			m.storageSelect = components.NewStorageSelect()
+			return nil
+		}
+		if m.bitwardenLoginForm.IsSubmitted() {
+			// Attempt login via CLI
+			password := m.bitwardenLoginForm.Password()
+			otp := m.bitwardenLoginForm.OTP()
+			if err := m.bitwardenManager.Login(password, otp); err != nil {
+				m.bitwardenLoginForm.SetError(fmt.Sprintf("Login failed: %v", err))
+				m.bitwardenLoginForm = nil
+				m.state = StateSelectStorage
+				m.storageSelect = components.NewStorageSelect()
+				fmt.Printf("Error logging in to Bitwarden: %s\n")
+				return nil
+			}
+			m.storageBackend = m.bitwardenManager
 			width, height := m.width, m.height
 			if width <= 0 {
 				width = 60
@@ -146,10 +211,38 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			if height <= 0 {
 				height = 20
 			}
-			m.connectionList = components.NewConnectionList(bwm.ListConnections(), width, height)
+			m.connectionList = components.NewConnectionList(nil, width, height)
 			m.state = StateConnectionList
-			// Reset Bitwarden form after submit
-			m.bitwardenForm = nil
+			m.bitwardenLoginForm = nil
+			return nil
+		}
+		return nil
+
+	case StateBitwardenUnlock:
+		m.bitwardenUnlockForm = model.(*components.BitwardenUnlockForm)
+		if m.bitwardenUnlockForm.IsCanceled() {
+			m.bitwardenUnlockForm = nil
+			m.state = StateSelectStorage
+			m.storageSelect = components.NewStorageSelect()
+			return nil
+		}
+		if m.bitwardenUnlockForm.IsSubmitted() {
+			password := m.bitwardenUnlockForm.Password()
+			if err := m.bitwardenManager.Unlock(password); err != nil {
+				m.bitwardenUnlockForm.SetError(fmt.Sprintf("Unlock failed: %v", err))
+				return nil
+			}
+			m.storageBackend = m.bitwardenManager
+			width, height := m.width, m.height
+			if width <= 0 {
+				width = 60
+			}
+			if height <= 0 {
+				height = 20
+			}
+			m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, height)
+			m.state = StateConnectionList
+			m.bitwardenUnlockForm = nil
 			return nil
 		}
 		return nil
