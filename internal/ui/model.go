@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -79,6 +80,12 @@ func (m *Model) LoadConnections() {
 	}
 }
 
+// sanitizeFileName replaces all non-alphanumeric characters with underscores
+func sanitizeFileName(name string) string {
+	re := regexp.MustCompile(`[^a-zA-Z0-9]`)
+	return re.ReplaceAllString(name, "_")
+}
+
 func getTempKeyFile(conn config.SSHConnection) (string, error) {
 	usr, err := user.Current()
 	if err != nil {
@@ -88,7 +95,8 @@ func getTempKeyFile(conn config.SSHConnection) (string, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	keyPath := filepath.Join(dir, fmt.Sprintf("id_%s", conn.Name))
+	safeName := sanitizeFileName(conn.Name)
+	keyPath := filepath.Join(dir, fmt.Sprintf("id_%s", safeName))
 	if err := os.WriteFile(keyPath, []byte(conn.Password), 0600); err != nil {
 		return "", err
 	}
