@@ -70,7 +70,11 @@ func (m *Model) LoadConnections() {
 		if height <= 0 {
 			height = 20
 		}
-		m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, height)
+		visibleListHeight := height - headerLines - footerLines
+		if visibleListHeight < 5 {
+			visibleListHeight = 5
+		}
+		m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
 	}
 }
 
@@ -165,7 +169,11 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 					if height <= 0 {
 						height = 20
 					}
-					m.connectionList = components.NewConnectionList(nil, width, height)
+					visibleListHeight := height - headerLines - footerLines
+					if visibleListHeight < 5 {
+						visibleListHeight = 5
+					}
+					m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
 					m.state = StateConnectionList
 				}
 				return nil
@@ -260,10 +268,14 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			if height <= 0 {
 				height = 20
 			}
+			visibleListHeight := height - headerLines - footerLines
+			if visibleListHeight < 5 {
+				visibleListHeight = 5
+			}
 			if err := m.bitwardenManager.Load(); err != nil {
 				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden connections: %v", err)
 			}
-			m.connectionList = components.NewConnectionList(m.bitwardenManager.ListConnections(), width, height)
+			m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
 			m.state = StateConnectionList
 			m.bitwardenUnlockForm = nil
 			return nil
@@ -358,11 +370,9 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			} else {
 				m.connectionForm = nil
 				m.state = StateConnectionList
-				// Refresh connections
 				if err := m.storageBackend.Load(); err != nil {
 					m.errorMessage = fmt.Sprintf("Failed to reload connections: %s", err)
 				}
-				// Rebuild the list to show new connection
 				width, height := m.width, m.height
 				if width <= 0 {
 					width = 60
@@ -370,10 +380,13 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				if height <= 0 {
 					height = 20
 				}
-				m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, height)
+				visibleListHeight := height - headerLines - footerLines
+				if visibleListHeight < 5 {
+					visibleListHeight = 5
+				}
+				m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
 			}
-			m.connectionForm = nil
-			return nil
+			return nil // or try: return tea.ClearScreen
 		}
 
 	case StateSSHTerminal:
