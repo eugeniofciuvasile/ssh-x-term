@@ -8,11 +8,12 @@ type SSHConnection struct {
 	Port        int    `json:"port"`
 	Username    string `json:"username"`
 	Password    string `json:"password,omitempty"`
-	KeyFile     string `json:"key_file,omitempty"`
+	PublicKey   string `json:"public_key,omitempty"`
 	UsePassword bool   `json:"use_password"`
+	KeyFile     string `json:"key_file,omitempty"`
+	Notes       string `json:"notes,omitempty"`
 }
 
-// Config represents the application configuration
 type Config struct {
 	Connections []SSHConnection `json:"connections"`
 	LastUsed    string          `json:"last_used,omitempty"`

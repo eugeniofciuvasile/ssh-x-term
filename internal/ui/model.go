@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -14,55 +17,114 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// AppState represents the current state of the application
 type AppState int
 
 const (
-	StateConnectionList AppState = iota
+	StateSelectStorage AppState = iota
+	StateBitwardenConfig
+	StateConnectionList
 	StateAddConnection
 	StateEditConnection
 	StateSSHTerminal
+	StateBitwardenLogin
+	StateBitwardenUnlock
+	headerLines = 4
+	footerLines = 4
 )
 
-// Model represents the UI model for the application
 type Model struct {
-	configManager  *config.ConfigManager
-	state          AppState
-	width          int
-	height         int
-	connectionList *components.ConnectionList
-	connectionForm *components.ConnectionForm
-	terminal       *components.TerminalComponent
-	errorMessage   string
+	state               AppState
+	storageSelect       *components.StorageSelect
+	storageBackend      config.Storage
+	configManager       *config.ConfigManager
+	width               int
+	height              int
+	connectionList      *components.ConnectionList
+	connectionForm      *components.ConnectionForm
+	terminal            *components.TerminalComponent
+	bitwardenForm       *components.BitwardenConfigForm
+	errorMessage        string
+	bitwardenLoginForm  *components.BitwardenLoginForm
+	bitwardenManager    *config.BitwardenManager
+	bitwardenUnlockForm *components.BitwardenUnlockForm
 }
 
-// NewModel creates a new UI model
-func NewModel(configManager *config.ConfigManager) *Model {
-	connectionList := components.NewConnectionList(configManager.Config.Connections)
-
+func NewModel() *Model {
 	return &Model{
-		configManager:  configManager,
-		state:          StateConnectionList,
-		connectionList: connectionList,
+		state:         StateSelectStorage,
+		storageSelect: components.NewStorageSelect(),
 	}
 }
 
-// Init initializes the model
 func (m *Model) Init() tea.Cmd {
 	return nil
 }
 
-// LoadConnections loads connections from config and updates the connection list
 func (m *Model) LoadConnections() {
-	m.connectionList.SetConnections(m.configManager.Config.Connections)
+	if m.storageBackend != nil {
+		if err := m.storageBackend.Load(); err != nil {
+			m.errorMessage = fmt.Sprintf("Failed to reload connections: %v", err)
+		}
+		width, height := m.width, m.height
+		if width <= 0 {
+			width = 60
+		}
+		if height <= 0 {
+			height = 20
+		}
+		visibleListHeight := height - headerLines - footerLines
+		if visibleListHeight < 5 {
+			visibleListHeight = 5
+		}
+		m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
+	}
 }
 
-// getActiveComponent returns the currently active component
+// sanitizeFileName replaces all non-alphanumeric characters with underscores
+func sanitizeFileName(name string) string {
+	re := regexp.MustCompile(`[^a-zA-Z0-9]`)
+	return re.ReplaceAllString(name, "_")
+}
+
+func getTempKeyFile(conn config.SSHConnection) (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(usr.HomeDir, ".ssh", "xterm_keys")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	safeName := sanitizeFileName(conn.Name)
+	keyPath := filepath.Join(dir, fmt.Sprintf("id_%s", safeName))
+	if err := os.WriteFile(keyPath, []byte(conn.Password), 0600); err != nil {
+		return "", err
+	}
+	if conn.PublicKey != "" {
+		_ = os.WriteFile(keyPath+".pub", []byte(conn.PublicKey), 0644)
+	}
+	return keyPath, nil
+}
+
 func (m *Model) getActiveComponent() tea.Model {
 	switch m.state {
+	case StateSelectStorage:
+		return m.storageSelect
+	case StateBitwardenConfig:
+		return m.bitwardenForm
+	case StateBitwardenLogin:
+		return m.bitwardenLoginForm
+	case StateBitwardenUnlock:
+		return m.bitwardenUnlockForm
 	case StateConnectionList:
+		if m.connectionList == nil {
+			return nil
+		}
 		return m.connectionList
 	case StateAddConnection, StateEditConnection:
+		if m.connectionForm == nil {
+			return nil
+		}
 		return m.connectionForm
 	case StateSSHTerminal:
 		return m.terminal
@@ -71,93 +133,350 @@ func (m *Model) getActiveComponent() tea.Model {
 	}
 }
 
-// handleComponentResult handles the result of a component's update function
 func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 	switch m.state {
+	case StateSelectStorage:
+		m.storageSelect = model.(*components.StorageSelect)
+		if m.storageSelect.IsCanceled() {
+			return tea.Quit
+		}
+		if m.storageSelect.IsChosen() {
+			switch m.storageSelect.SelectedBackend() {
+			case components.StorageLocal:
+				cm, err := config.NewConfigManager()
+				if err != nil {
+					m.errorMessage = fmt.Sprintf("Error initializing local config: %s", err)
+					return nil
+				}
+				if err := cm.Load(); err != nil {
+					m.errorMessage = fmt.Sprintf("Error loading config: %s", err)
+					return nil
+				}
+				m.storageBackend = cm
+				m.configManager = cm
+				width, height := m.width, m.height
+				if width <= 0 {
+					width = 60
+				}
+				if height <= 0 {
+					height = 20
+				}
+				visibleListHeight := height - headerLines - footerLines
+				if visibleListHeight < 5 {
+					visibleListHeight = 5
+				}
+				m.connectionList = components.NewConnectionList(cm.ListConnections(), width, visibleListHeight)
+				m.state = StateConnectionList
+				// Reset the storage select so it's clean if user comes back
+				m.storageSelect = components.NewStorageSelect()
+			case components.StorageBitwarden:
+				bwm, err := config.NewBitwardenManager(&config.BitwardenConfig{})
+				if err != nil {
+					m.errorMessage = fmt.Sprintf("Error initializing Bitwarden: %s", err)
+					return nil
+				}
+				m.bitwardenManager = bwm
+				loggedIn, unlocked, err := bwm.Status()
+				if err != nil {
+					m.errorMessage = fmt.Sprintf("Error checking Bitwarden status: %s", err)
+					return nil
+				}
+				if !loggedIn {
+					m.bitwardenForm = components.NewBitwardenConfigForm()
+					m.state = StateBitwardenConfig
+				} else if !unlocked {
+					m.bitwardenUnlockForm = components.NewBitwardenUnlockForm()
+					m.state = StateBitwardenUnlock
+				} else {
+					// Already logged in and unlocked
+					m.storageBackend = m.bitwardenManager
+					width, height := m.width, m.height
+					if width <= 0 {
+						width = 60
+					}
+					if height <= 0 {
+						height = 20
+					}
+					visibleListHeight := height - headerLines - footerLines
+					if visibleListHeight < 5 {
+						visibleListHeight = 5
+					}
+					m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
+					m.state = StateConnectionList
+				}
+				return nil
+			}
+		}
+		return nil
+
+	case StateBitwardenConfig:
+		m.bitwardenForm = model.(*components.BitwardenConfigForm)
+		if m.bitwardenForm.IsCanceled() {
+			m.bitwardenForm = nil
+			m.state = StateSelectStorage
+			m.storageSelect = components.NewStorageSelect()
+			return nil
+		}
+		if m.bitwardenForm.IsSubmitted() {
+			serverURL, email := m.bitwardenForm.Config()
+			cfg := &config.BitwardenConfig{ServerURL: serverURL, Email: email}
+			bwm, err := config.NewBitwardenManager(cfg)
+			if err != nil {
+				m.bitwardenForm.ErrorMsg = err.Error()
+				return nil
+			}
+			m.bitwardenManager = bwm
+			m.bitwardenLoginForm = components.NewBitwardenLoginForm()
+			m.state = StateBitwardenLogin
+			return nil
+		}
+		return nil
+
+	case StateBitwardenLogin:
+		m.bitwardenLoginForm = model.(*components.BitwardenLoginForm)
+		if m.bitwardenLoginForm.IsCanceled() {
+			m.bitwardenLoginForm = nil
+			m.state = StateSelectStorage
+			m.storageSelect = components.NewStorageSelect()
+			return nil
+		}
+		if m.bitwardenLoginForm.IsSubmitted() {
+			// Attempt login via CLI
+			password := m.bitwardenLoginForm.Password()
+			otp := m.bitwardenLoginForm.OTP()
+			if err := m.bitwardenManager.Login(password, otp); err != nil {
+				m.bitwardenLoginForm.SetError(fmt.Sprintf("Login failed: %v", err))
+				m.bitwardenLoginForm = nil
+				m.state = StateSelectStorage
+				m.storageSelect = components.NewStorageSelect()
+				fmt.Printf("Error logging in to Bitwarden: %s\n")
+				return nil
+			}
+			m.storageBackend = m.bitwardenManager
+			width, height := m.width, m.height
+			if width <= 0 {
+				width = 60
+			}
+			if height <= 0 {
+				height = 20
+			}
+			if err := m.bitwardenManager.Load(); err != nil {
+				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden connections: %v", err)
+			}
+			m.connectionList = components.NewConnectionList(m.bitwardenManager.ListConnections(), width, height)
+			m.state = StateConnectionList
+			m.bitwardenLoginForm = nil
+			return nil
+		}
+		return nil
+
+	case StateBitwardenUnlock:
+		m.bitwardenUnlockForm = model.(*components.BitwardenUnlockForm)
+		if m.bitwardenUnlockForm.IsCanceled() {
+			m.bitwardenUnlockForm = nil
+			m.state = StateSelectStorage
+			m.storageSelect = components.NewStorageSelect()
+			return nil
+		}
+		if m.bitwardenUnlockForm.IsSubmitted() {
+			password := m.bitwardenUnlockForm.Password()
+			if err := m.bitwardenManager.Unlock(password); err != nil {
+				m.bitwardenUnlockForm.SetError(fmt.Sprintf("Unlock failed: %v", err))
+				m.state = StateSelectStorage
+				m.bitwardenForm = nil
+				m.bitwardenUnlockForm = nil
+				m.storageSelect = components.NewStorageSelect()
+				return nil
+			}
+			m.storageBackend = m.bitwardenManager
+			width, height := m.width, m.height
+			if width <= 0 {
+				width = 60
+			}
+			if height <= 0 {
+				height = 20
+			}
+			visibleListHeight := height - headerLines - footerLines
+			if visibleListHeight < 5 {
+				visibleListHeight = 5
+			}
+			if err := m.bitwardenManager.Load(); err != nil {
+				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden connections: %v", err)
+			}
+			m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
+			m.state = StateConnectionList
+			m.bitwardenUnlockForm = nil
+			return nil
+		}
+		return nil
+
 	case StateConnectionList:
 		m.connectionList = model.(*components.ConnectionList)
 		if conn := m.connectionList.SelectedConnection(); conn != nil {
-			if !m.connectionList.OpenInNewTerminal() {
-				/*
-					SSH session in the same terminal
-					A connection was selected, start SSH terminal
-				*/
-				m.terminal = components.NewTerminalComponent(*conn)
-				m.state = StateSSHTerminal
-				m.connectionList.Reset()
-				return m.terminal.Init()
-			} else {
-				/*
-				   SSH session in another tmux window
-				   Build SSH command
-				*/
-				sshArgs := []string{}
-				if conn.KeyFile != "" {
-					sshArgs = append(sshArgs, "-i", filepath.Clean(conn.KeyFile))
-				}
-				if conn.Port != 22 && conn.Port != 0 {
-					sshArgs = append(sshArgs, "-p", strconv.Itoa(conn.Port))
-				}
-				userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
-				sshArgs = append(sshArgs, userHost)
+			openInNewWindow := m.connectionList.OpenInNewTerminal()
+			isWindows := runtime.GOOS == "windows"
+			var keyPath string
 
-				// Build full SSH command
-				sshCommand := fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
-
-				// Sanitize and build tmux window name: "user@host:port - ConnectionName"
-				windowName := fmt.Sprintf("%s@%s:%d - %s", conn.Username, conn.Host, conn.Port, conn.Name)
-
-				// Launch tmux new window with name and SSH command
-				cmd := exec.Command("tmux", "new-window", "-n", windowName, sshCommand)
-				err := cmd.Start()
+			// If using key-based authentication, persist private key to a temp file for ssh -i
+			if !conn.UsePassword && conn.Password != "" {
+				var err error
+				keyPath, err = getTempKeyFile(*conn)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error launching tmux window: %v\n", err)
+					m.errorMessage = fmt.Sprintf("Failed to write key file: %s", err)
+					return nil
 				}
+			}
 
-				// Optional: Warn if password use is enabled
-				if conn.UsePassword && conn.Password != "" {
-					tea.Println("Password authentication not supported in this mode. Use manual entry or key-based login.")
+			// Construct ssh arguments for both inline and new window
+			sshArgs := []string{}
+			if !conn.UsePassword && keyPath != "" {
+				sshArgs = append(sshArgs, "-i", keyPath)
+			}
+			if conn.Port != 22 && conn.Port != 0 {
+				sshArgs = append(sshArgs, "-p", strconv.Itoa(conn.Port))
+			}
+			userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
+			sshArgs = append(sshArgs, userHost)
+
+			if !isWindows {
+				// ----------- Unix-like platforms -----------
+				if openInNewWindow {
+					// Use tmux new-window for launching external ssh session
+					var sshCommand string
+					useSshpass := false
+
+					if conn.UsePassword && conn.Password != "" {
+						if _, err := exec.LookPath("sshpass"); err == nil {
+							useSshpass = true
+							sshCommand = fmt.Sprintf(
+								"sshpass -p %q ssh %s",
+								conn.Password,
+								strings.Join(sshArgs, " "),
+							)
+						} else {
+							tea.Println("sshpass not found, falling back to manual password entry or key-based login.")
+							sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
+						}
+					} else {
+						sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
+					}
+
+					windowName := fmt.Sprintf("%s@%s:%d - %s", conn.Username, conn.Host, conn.Port, conn.Name)
+					cmd := exec.Command("tmux", "new-window", "-n", windowName, sshCommand)
+					err := cmd.Start()
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Error launching tmux window: %v\n", err)
+					}
+					if conn.UsePassword && conn.Password != "" && !useSshpass {
+						tea.Println("Password authentication not supported in this mode. Use manual entry or key-based login.")
+					}
+					m.state = StateConnectionList
+					m.connectionList.Reset()
+					return nil
+				} else {
+					// Inline SSH session in TUI
+					m.terminal = components.NewTerminalComponent(*conn)
+					m.state = StateSSHTerminal
+					m.connectionList.Reset()
+					return m.terminal.Init()
 				}
+			} else {
+				// ----------- Windows platforms -----------
+				if openInNewWindow {
+					// Prefer plink.exe for password automation if available
+					usePlink := false
+					if conn.UsePassword && conn.Password != "" {
+						if _, err := exec.LookPath("plink.exe"); err == nil {
+							usePlink = true
+						}
+					}
 
-				// Remain on the connection list view
-				m.state = StateConnectionList
-				m.connectionList.Reset()
-				return nil
+					var cmd *exec.Cmd
+					if usePlink {
+						// Build plink command
+						plinkArgs := []string{"-ssh", userHost, "-pw", conn.Password}
+						if conn.Port != 22 && conn.Port != 0 {
+							plinkArgs = append(plinkArgs, "-P", strconv.Itoa(conn.Port))
+						}
+						if !conn.UsePassword && keyPath != "" {
+							plinkArgs = append(plinkArgs, "-i", keyPath)
+						}
+						cmd = exec.Command("cmd", "/C", "start", "", "plink.exe")
+						cmd.Args = append(cmd.Args, plinkArgs...)
+					} else {
+						// Fallback to OpenSSH on Windows
+						cmd = exec.Command("cmd", "/C", "start", "", "ssh")
+						cmd.Args = append(cmd.Args, sshArgs...)
+					}
+
+					err := cmd.Start()
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Error launching terminal: %v\n", err)
+					}
+					if conn.UsePassword && conn.Password != "" && !usePlink {
+						tea.Println("Password authentication not supported in this mode. Use manual entry, key-based login, or install plink.exe.")
+					}
+					m.state = StateConnectionList
+					m.connectionList.Reset()
+					return nil
+				} else {
+					// Inline SSH session in TUI
+					m.terminal = components.NewTerminalComponent(*conn)
+					m.state = StateSSHTerminal
+					m.connectionList.Reset()
+					return m.terminal.Init()
+				}
 			}
 		}
 
 	case StateAddConnection, StateEditConnection:
 		m.connectionForm = model.(*components.ConnectionForm)
 		if m.connectionForm.IsCanceled() {
-			// Form was canceled, return to connection list
+			m.connectionForm = nil
 			m.state = StateConnectionList
 			m.connectionList.Reset()
 			return nil
 		}
 		if m.connectionForm.IsSubmitted() {
-			// Form was submitted, save connection
 			conn := m.connectionForm.Connection()
-			err := m.configManager.AddConnection(conn)
+			var err error
+			if m.state == StateEditConnection {
+				err = m.storageBackend.EditConnection(conn)
+			} else {
+				err = m.storageBackend.AddConnection(conn)
+			}
 			if err != nil {
 				m.errorMessage = fmt.Sprintf("Failed to save connection: %s", err)
 			} else {
-				// Reload connections and return to list
-				m.LoadConnections()
+				m.connectionForm = nil
 				m.state = StateConnectionList
+				if err := m.storageBackend.Load(); err != nil {
+					m.errorMessage = fmt.Sprintf("Failed to reload connections: %s", err)
+				}
+				width, height := m.width, m.height
+				if width <= 0 {
+					width = 60
+				}
+				if height <= 0 {
+					height = 20
+				}
+				visibleListHeight := height - headerLines - footerLines
+				if visibleListHeight < 5 {
+					visibleListHeight = 5
+				}
+				m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
 			}
-			m.connectionList.Reset()
 			return nil
 		}
 
 	case StateSSHTerminal:
 		m.terminal = model.(*components.TerminalComponent)
 		if m.terminal.IsFinished() {
-			// Terminal session ended, return to connection list
+			m.terminal = nil // reset the terminal component
 			m.state = StateConnectionList
 			m.connectionList.Reset()
 			return nil
 		}
 	}
-
 	return cmd
 }

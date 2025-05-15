@@ -1,3 +1,6 @@
+//go:build !windows
+// +build !windows
+
 package ssh
 
 import (
@@ -338,9 +341,6 @@ func (s *Session) Close() error {
 	case <-time.After(500 * time.Millisecond):
 		// Timeout - force continue
 	}
-
-	// We intentionally don't try to show cursor here because it might cause EOF errors
-	// Let BubbleTea handle cursor visibility after we return
 
 	// Restore terminal state
 	if s.originalTty != nil {
