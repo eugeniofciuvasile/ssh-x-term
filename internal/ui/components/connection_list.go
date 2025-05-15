@@ -24,26 +24,23 @@ type connectionItem struct {
 	connection config.SSHConnection
 }
 
-// FilterValue implements list.Item interface
 func (i connectionItem) FilterValue() string {
 	return i.connection.Name
 }
 
-// Title returns the item title for display
 func (i connectionItem) Title() string {
 	return i.connection.Name
 }
 
-// Description returns the item description for display
 func (i connectionItem) Description() string {
 	port := ""
-	if i.connection.Port != 22 {
+	if i.connection.Port != 22 && i.connection.Port != 0 {
 		port = fmt.Sprintf(":%d", i.connection.Port)
 	}
 	return fmt.Sprintf("%s@%s%s", i.connection.Username, i.connection.Host, port)
 }
 
-// ConnectionList is a component for listing SSH connections
+// ConnectionList is a Bubble Tea component for listing SSH connections
 type ConnectionList struct {
 	list              list.Model
 	connections       []config.SSHConnection
@@ -52,16 +49,22 @@ type ConnectionList struct {
 	openInNewTerminal bool
 }
 
-// NewConnectionList creates a new connection list component
-func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
-	// Set up list items
+// NewConnectionList creates a new connection list component.
+// width and height should be set to the current terminal size.
+func NewConnectionList(connections []config.SSHConnection, width, height int) *ConnectionList {
 	items := make([]list.Item, len(connections))
 	for i, conn := range connections {
 		items[i] = connectionItem{connection: conn}
 	}
 
-	// Set up list
-	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	if width <= 0 {
+		width = 60
+	}
+	if height <= 0 {
+		height = 20
+	}
+
+	l := list.New(items, list.NewDefaultDelegate(), width, height)
 	if config.IsTmuxAvailable {
 		l.Title = "SSH Connections - Toggle open in new terminal [x]"
 	} else {
@@ -76,22 +79,10 @@ func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 	// Set up keybindings
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			key.NewBinding(
-				key.WithKeys("a"),
-				key.WithHelp("a", "add connection"),
-			),
-			key.NewBinding(
-				key.WithKeys("e"),
-				key.WithHelp("e", "edit connection"),
-			),
-			key.NewBinding(
-				key.WithKeys("d"),
-				key.WithHelp("d", "delete connection"),
-			),
-			key.NewBinding(
-				key.WithKeys("o"),
-				key.WithHelp("o", "toggle open in new terminal"),
-			),
+			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add connection")),
+			key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
+			key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete connection")),
+			key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "toggle open in new terminal")),
 		}
 	}
 
@@ -104,16 +95,14 @@ func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 		list:              l,
 		connections:       connections,
 		highlightedConn:   highlighted,
-		openInNewTerminal: config.IsTmuxAvailable, // Default state of the checkbox
+		openInNewTerminal: config.IsTmuxAvailable,
 	}
 }
 
-// Init initializes the component
 func (cl *ConnectionList) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles component updates
 func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -124,13 +113,11 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return cl, nil
 
 	case tea.KeyMsg:
-		// Check if key message is handled by the list
 		if cl.list.FilterState() == list.Filtering {
 			newList, cmd := cl.list.Update(msg)
 			cl.list = newList
 			return cl, cmd
 		}
-
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			selectedItem := cl.list.SelectedItem()
@@ -142,10 +129,7 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case msg.String() == "o":
-			// Toggle checkbox when "o" is pressed
 			cl.openInNewTerminal = !cl.openInNewTerminal
-
-			// Update the title to reflect checkbox state
 			checkboxStr := "[ ]"
 			if cl.openInNewTerminal {
 				checkboxStr = "[x]"
@@ -154,11 +138,9 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Handle other messages with the list component
 	newList, cmd := cl.list.Update(msg)
 	cl.list = newList
 
-	// Update highlighted connection
 	if item := cl.list.SelectedItem(); item != nil {
 		if connItem, ok := item.(connectionItem); ok {
 			cl.highlightedConn = &connItem.connection
@@ -170,43 +152,29 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return cl, cmd
 }
 
-// View renders the component
 func (cl *ConnectionList) View() string {
-	checkboxStr := "[ ]"
-	if cl.openInNewTerminal {
-		checkboxStr = "[x]"
-	}
 	if len(cl.connections) == 0 {
 		return fmt.Sprintf("\n%s\n\n  No connections found. Press 'a' to add a connection.\n\n", titleStyle.Render("SSH Connections"))
 	}
-	// Display the checkbox next to the title
-	header := fmt.Sprintf("%s SSH Connections", checkboxStr)
-
-	// Return the list and the checkbox in the view
-	return fmt.Sprintf("%s\n\n%s", header, cl.list.View())
+	return fmt.Sprintf("%s", cl.list.View())
 }
 
-// SelectedConnection returns the selected connection, if any
 func (cl *ConnectionList) SelectedConnection() *config.SSHConnection {
 	return cl.selectedConn
 }
 
-// HighlightedConnection returns the currently highlighted connection
 func (cl *ConnectionList) HighlightedConnection() *config.SSHConnection {
 	return cl.highlightedConn
 }
 
-// OpenInNewTerminal returns whether to open the connection in a new terminal
 func (cl *ConnectionList) OpenInNewTerminal() bool {
 	return cl.openInNewTerminal
 }
 
-// Set OpenInNewTerminal sets whether to open the connection in a new terminal
 func (cl *ConnectionList) ToggleOpenInNewTerminal() {
 	cl.openInNewTerminal = !cl.openInNewTerminal
 }
 
-// SetConnections updates the list of connections
 func (cl *ConnectionList) SetConnections(connections []config.SSHConnection) {
 	cl.connections = connections
 	items := make([]list.Item, len(connections))
@@ -216,19 +184,24 @@ func (cl *ConnectionList) SetConnections(connections []config.SSHConnection) {
 	cl.list.SetItems(items)
 }
 
-// List returns the underlying list model
 func (cl *ConnectionList) List() *list.Model {
 	return &cl.list
 }
 
-// Reset clears the selected connection
 func (cl *ConnectionList) Reset() {
 	cl.selectedConn = nil
 	cl.list.Select(0)
-
 	if len(cl.connections) > 0 {
 		cl.highlightedConn = &cl.connections[0]
 	} else {
 		cl.highlightedConn = nil
 	}
+}
+
+func (cl *ConnectionList) SetWidth(width int) {
+	cl.list.SetWidth(width)
+}
+
+func (cl *ConnectionList) SetHeight(height int) {
+	cl.list.SetHeight(height)
 }

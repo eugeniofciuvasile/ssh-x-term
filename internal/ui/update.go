@@ -16,64 +16,62 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-
-		// Pass window size to active component
+		if m.connectionList != nil {
+			m.connectionList.SetWidth(m.width)
+			m.connectionList.SetHeight(m.height - 4)
+		}
 		if activeComponent := m.getActiveComponent(); activeComponent != nil {
 			model, cmd := activeComponent.Update(msg)
 			return m, m.handleComponentResult(model, cmd)
 		}
 
 	case tea.KeyMsg:
-		listModel := m.connectionList.List()
+		if m.state == StateConnectionList && m.connectionList != nil {
+			listModel := m.connectionList.List()
+			if listModel != nil && listModel.FilterState() == list.Filtering {
+				newList, cmd := listModel.Update(msg)
+				*listModel = newList
+				return m, cmd
+			}
 
-		if listModel.FilterState() == list.Filtering {
-			newList, cmd := listModel.Update(msg)
-			*listModel = newList // update the pointer target
-			return m, cmd
-		}
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				m.state = StateSelectStorage
+				return m, m.storageSelect.Init()
 
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c"))):
-			return m, tea.Quit
+			case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c"))):
+				return m, tea.Quit
 
-		case m.state == StateConnectionList && msg.String() == "a":
-			// Add new connection
-			m.connectionForm = components.NewConnectionForm(nil)
-			m.state = StateAddConnection
-			return m, m.connectionForm.Init()
-
-		case m.state == StateConnectionList && msg.String() == "e":
-			// Edit selected connection
-			selectedItem := m.connectionList.HighlightedConnection()
-			if selectedItem != nil {
-				m.connectionForm = components.NewConnectionForm(selectedItem)
-				m.state = StateEditConnection
+			case msg.String() == "a":
+				m.connectionForm = components.NewConnectionForm(nil)
+				m.state = StateAddConnection
 				return m, m.connectionForm.Init()
-			}
 
-		case m.state == StateConnectionList && msg.String() == "d":
-			// Delete selected connection
-			selectedItem := m.connectionList.HighlightedConnection()
-			if selectedItem != nil {
-				err := m.configManager.DeleteConnection(selectedItem.ID)
-				if err != nil {
-					m.errorMessage = err.Error()
-				} else {
-					m.LoadConnections()
-					m.connectionList.Reset()
+			case msg.String() == "e":
+				selectedItem := m.connectionList.HighlightedConnection()
+				if selectedItem != nil {
+					m.connectionForm = components.NewConnectionForm(selectedItem)
+					m.state = StateEditConnection
+					return m, m.connectionForm.Init()
 				}
-				return m, nil
+
+			case msg.String() == "d":
+				selectedItem := m.connectionList.HighlightedConnection()
+				if selectedItem != nil && m.storageBackend != nil {
+					err := m.storageBackend.DeleteConnection(selectedItem.ID)
+					if err != nil {
+						m.errorMessage = err.Error()
+					} else {
+						m.LoadConnections()
+						m.connectionList.Reset()
+					}
+					return m, nil
+				}
 			}
-			//
-			// case m.state == StateConnectionList && msg.String() == "o":
-			// 	// Mark next selected connection as open in a new terminal
-			// 	m.connectionList.ToggleOpenInNewTerminal()
-			// 	c.openCheckbox.Checked = c.openInNewTerminal
-			// 	return m, nil
 		}
 	}
 
-	// Pass message to active component
+	// Default: pass message to active component
 	if activeComponent := m.getActiveComponent(); activeComponent != nil {
 		model, cmd := activeComponent.Update(msg)
 		return m, m.handleComponentResult(model, cmd)

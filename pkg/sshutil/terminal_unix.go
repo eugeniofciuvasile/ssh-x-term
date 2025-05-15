@@ -1,3 +1,6 @@
+//go:build linux || darwin || freebsd || netbsd || openbsd
+// +build linux darwin freebsd netbsd openbsd
+
 package sshutil
 
 import (
@@ -87,7 +90,6 @@ func (ts *TerminalSession) handleResize() error {
 	if err != nil {
 		return fmt.Errorf("failed to get terminal size: %w", err)
 	}
-
 	// Optional: handle resize logic (e.g., notify remote, etc.)
 	fmt.Fprintf(os.Stderr, "\nTerminal resized to %dx%d\n", width, height)
 	return nil
