@@ -55,7 +55,7 @@ func runApp() {
 	}
 
 	// Create UI model
-	model := ui.NewModel(configManager)
+	model := ui.NewModel()
 
 	// Initialize the Bubble Tea program
 	p := tea.NewProgram(
