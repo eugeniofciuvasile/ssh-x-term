@@ -7,9 +7,11 @@ type SSHConnection struct {
 	Host        string `json:"host"`
 	Port        int    `json:"port"`
 	Username    string `json:"username"`
-	Password    string `json:"password,omitempty"`
-	KeyFile     string `json:"key_file,omitempty"`
+	Password    string `json:"password,omitempty"`   // If use_password: password, if keyfile: private key content
+	PublicKey   string `json:"public_key,omitempty"` // Public key content
 	UsePassword bool   `json:"use_password"`
+	KeyFile     string `json:"key_file,omitempty"` // Path or original file, not used for Bitwarden
+	Notes       string `json:"notes,omitempty"`
 }
 
 // Config represents the application configuration

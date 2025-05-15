@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -23,8 +25,6 @@ type BitwardenManager struct {
 	items      map[string]SSHConnection
 }
 
-const sshNoteTagField = "ssh-x-term"
-
 func NewBitwardenManager(cfg *BitwardenConfig) (*BitwardenManager, error) {
 	return &BitwardenManager{
 		cfg:   cfg,
@@ -32,7 +32,6 @@ func NewBitwardenManager(cfg *BitwardenConfig) (*BitwardenManager, error) {
 	}, nil
 }
 
-// checkBwCLI checks if the 'bw' CLI is available in the PATH.
 func checkBwCLI() error {
 	_, err := exec.LookPath("bw")
 	if err != nil {
@@ -117,58 +116,175 @@ func (bwm *BitwardenManager) Load() error {
 
 	bwm.items = make(map[string]SSHConnection)
 	for _, item := range allItems {
-		// Only login items
 		if t, ok := item["type"].(float64); !ok || int(t) != 1 {
 			continue
 		}
-		notes, _ := item["notes"].(string)
-		if notes == "" {
-			continue
-		}
 		conn := SSHConnection{}
-		if err := json.Unmarshal([]byte(notes), &conn); err != nil {
-			// Not one of our items
-			continue
-		}
 		if id, ok := item["id"].(string); ok {
 			conn.ID = id
+		}
+		if name, ok := item["name"].(string); ok {
+			conn.Name = name
+		}
+		// Host, Port, Username, Password/privatekey from login
+		login, ok := item["login"].(map[string]interface{})
+		if ok {
+			if username, ok := login["username"].(string); ok {
+				conn.Username = username
+			}
+			if password, ok := login["password"].(string); ok {
+				conn.Password = password // Could be password or private key
+			}
+			if uris, ok := login["uris"].([]interface{}); ok && len(uris) > 0 {
+				if first, ok := uris[0].(map[string]interface{}); ok {
+					if uri, ok := first["uri"].(string); ok {
+						rest := strings.TrimPrefix(uri, "ssh://")
+						hostport := strings.Split(rest, ":")
+						conn.Host = hostport[0]
+						if len(hostport) > 1 {
+							if port, err := strconv.Atoi(hostport[1]); err == nil {
+								conn.Port = port
+							}
+						} else {
+							conn.Port = 22
+						}
+					}
+				}
+			}
+		}
+		// Custom fields: use_password
+		if fields, ok := item["fields"].([]interface{}); ok {
+			for _, f := range fields {
+				if field, ok := f.(map[string]interface{}); ok {
+					name, _ := field["name"].(string)
+					value, _ := field["value"].(string)
+					if strings.ToLower(name) == "use_password" {
+						conn.UsePassword = value == "true"
+					}
+				}
+			}
+		}
+		// Public key in notes
+		if notes, ok := item["notes"].(string); ok && notes != "" {
+			conn.PublicKey = notes
 		}
 		bwm.items[conn.ID] = conn
 	}
 	return nil
 }
 
+func (bwm *BitwardenManager) Save() error {
+	return nil
+}
+
+func (bwm *BitwardenManager) DeleteConnection(id string) error {
+	session, err := bwm.SessionKey()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("bw", "delete", "item", id, "--session", session, "--permanent")
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("could not delete Bitwarden item: %s", stderr.String())
+	}
+	return bwm.Load()
+}
+
+func (bwm *BitwardenManager) GetConnection(id string) (SSHConnection, bool) {
+	bwm.vaultMutex.Lock()
+	defer bwm.vaultMutex.Unlock()
+	c, ok := bwm.items[id]
+	return c, ok
+}
+
+func (bwm *BitwardenManager) ListConnections() []SSHConnection {
+	bwm.vaultMutex.Lock()
+	defer bwm.vaultMutex.Unlock()
+	conns := make([]SSHConnection, 0, len(bwm.items))
+	for _, c := range bwm.items {
+		conns = append(conns, c)
+	}
+	return conns
+}
+
+// PATCH: error reporting improved, KeyFileID logic fixed
 func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 	session, err := bwm.SessionKey()
 	if err != nil {
 		return err
 	}
-	connJSON, err := json.Marshal(conn)
-	if err != nil {
-		return err
+
+	// If UsePassword is false, we store the private key in login.password and public key in notes
+	publicKey := conn.PublicKey
+	privateKey := conn.Password
+
+	if !conn.UsePassword {
+		// --- PRIVATE KEY ---
+		if privateKey == "" && conn.KeyFile != "" {
+			expanded := ExpandPath(conn.KeyFile)
+			keyData, err := os.ReadFile(expanded)
+			if err != nil {
+				tip := ""
+				if os.IsPermission(err) {
+					tip = " (permission denied: check file permissions, you may need to run as the user who owns the file or change ownership)"
+				}
+				return fmt.Errorf("could not read private key file '%s': %v%s", conn.KeyFile, err, tip)
+			}
+			privateKey = string(keyData)
+		}
+		// --- PUBLIC KEY ---
+		pubPath := ExpandPath(conn.KeyFile) + ".pub"
+		if publicKey == "" {
+			pubData, err := os.ReadFile(pubPath)
+			if err != nil {
+				if !os.IsNotExist(err) {
+					tip := ""
+					if os.IsPermission(err) {
+						tip = " (permission denied: check file permissions, you may need to run as the user who owns the file or change ownership)"
+					}
+					return fmt.Errorf("could not read public key file '%s': %v%s", pubPath, err, tip)
+				}
+				// It's OK if .pub does not exist
+			} else {
+				publicKey = string(pubData)
+			}
+		}
 	}
+
+	// Add use_password field as custom field
+	fields := []map[string]interface{}{
+		{
+			"name":  "use_password",
+			"value": strconv.FormatBool(conn.UsePassword),
+			"type":  0,
+		},
+	}
+
 	login := map[string]interface{}{
 		"username": conn.Username,
-		"password": conn.Password,
+		"password": privateKey, // If UsePassword=true, this is the password. If false, this is the private key
 		"uris": []map[string]interface{}{
 			{
-				"match": nil,
-				"uri":   fmt.Sprintf("ssh://%s", conn.Host),
+				"uri": fmt.Sprintf("ssh://%s:%d", conn.Host, conn.Port),
 			},
 		},
 	}
+
 	item := map[string]interface{}{
-		"type":     1, // Login
-		"name":     conn.Name,
-		"notes":    string(connJSON),
-		"favorite": false,
-		"fields":   []map[string]interface{}{},
-		"login":    login,
+		"type":   1, // Login
+		"name":   conn.Name,
+		"login":  login,
+		"fields": fields,
+		"notes":  publicKey, // Store public key here
 	}
+
 	itemJSON, err := json.Marshal(item)
 	if err != nil {
 		return err
 	}
+
 	encodeCmd := exec.Command("bw", "encode")
 	encodeCmd.Stdin = bytes.NewReader(itemJSON)
 	var encodedOutput, encodeErr bytes.Buffer
@@ -188,48 +304,6 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 	return bwm.Load()
 }
 
-// Save is a no-op for Bitwarden (all changes go through CLI immediately)
-func (bwm *BitwardenManager) Save() error {
-	return nil
-}
-
-// DeleteConnection removes a connection by Bitwarden item ID
-func (bwm *BitwardenManager) DeleteConnection(id string) error {
-	session, err := bwm.SessionKey()
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command("bw", "delete", "item", id, "--session", session, "--permanent")
-	var out, stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("could not delete Bitwarden item: %s", stderr.String())
-	}
-	// Reload items from vault
-	return bwm.Load()
-}
-
-// GetConnection returns a connection by ID
-func (bwm *BitwardenManager) GetConnection(id string) (SSHConnection, bool) {
-	bwm.vaultMutex.Lock()
-	defer bwm.vaultMutex.Unlock()
-	c, ok := bwm.items[id]
-	return c, ok
-}
-
-// ListConnections returns all connections
-func (bwm *BitwardenManager) ListConnections() []SSHConnection {
-	bwm.vaultMutex.Lock()
-	defer bwm.vaultMutex.Unlock()
-	conns := make([]SSHConnection, 0, len(bwm.items))
-	for _, c := range bwm.items {
-		conns = append(conns, c)
-	}
-	return conns
-}
-
-// EditConnection updates an existing SSH connection (not part of Storage interface, but useful)
 func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 	session, err := bwm.SessionKey()
 	if err != nil {
@@ -238,51 +312,98 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 	if conn.ID == "" {
 		return fmt.Errorf("missing Bitwarden item ID for edit")
 	}
-	connBytes, err := json.Marshal(conn)
-	if err != nil {
-		return err
-	}
-	// Fetch current item
-	cmdGet := exec.Command("bw", "get", "item", conn.ID, "--session", session)
-	var outGet, errGet bytes.Buffer
-	cmdGet.Stdout = &outGet
-	cmdGet.Stderr = &errGet
-	if err := cmdGet.Run(); err != nil {
-		return fmt.Errorf("could not fetch Bitwarden item: %s", errGet.String())
-	}
-	var item map[string]interface{}
-	if err := json.Unmarshal(outGet.Bytes(), &item); err != nil {
-		return err
-	}
-	item["notes"] = string(connBytes)
-	item["name"] = conn.Name
-	if tags, ok := item["tags"].([]interface{}); ok {
-		found := false
-		for _, tag := range tags {
-			if tagstr, ok := tag.(string); ok && tagstr == sshNoteTagField {
-				found = true
-				break
+
+	// If UsePassword is false, we store the private key in login.password and public key in notes
+	publicKey := conn.PublicKey
+	privateKey := conn.Password
+
+	if !conn.UsePassword {
+		// --- PRIVATE KEY ---
+		if privateKey == "" && conn.KeyFile != "" {
+			expanded := ExpandPath(conn.KeyFile)
+			keyData, err := os.ReadFile(expanded)
+			if err != nil {
+				tip := ""
+				if os.IsPermission(err) {
+					tip = " (permission denied: check file permissions, you may need to run as the user who owns the file or change ownership)"
+				}
+				return fmt.Errorf("could not read private key file '%s': %v%s", conn.KeyFile, err, tip)
+			}
+			privateKey = string(keyData)
+		}
+		// --- PUBLIC KEY ---
+		pubPath := ExpandPath(conn.KeyFile) + ".pub"
+		if publicKey == "" {
+			pubData, err := os.ReadFile(pubPath)
+			if err != nil {
+				if !os.IsNotExist(err) {
+					tip := ""
+					if os.IsPermission(err) {
+						tip = " (permission denied: check file permissions, you may need to run as the user who owns the file or change ownership)"
+					}
+					return fmt.Errorf("could not read public key file '%s': %v%s", pubPath, err, tip)
+				}
+				// It's OK if .pub does not exist
+			} else {
+				publicKey = string(pubData)
 			}
 		}
-		if !found {
-			item["tags"] = append(tags, sshNoteTagField)
-		}
-	} else {
-		item["tags"] = []string{sshNoteTagField}
 	}
-	itemBytes, err := json.Marshal(item)
+
+	// Add use_password field as custom field
+	fields := []map[string]interface{}{
+		{
+			"name":  "use_password",
+			"value": strconv.FormatBool(conn.UsePassword),
+			"type":  0,
+		},
+	}
+
+	login := map[string]interface{}{
+		"username": conn.Username,
+		"password": privateKey, // If UsePassword=true, this is the password. If false, this is the private key
+		"uris": []map[string]interface{}{
+			{
+				"uri": fmt.Sprintf("ssh://%s:%d", conn.Host, conn.Port),
+			},
+		},
+	}
+
+	item := map[string]interface{}{
+		"type":   1, // Login
+		"name":   conn.Name,
+		"login":  login,
+		"fields": fields,
+		"notes":  publicKey, // Store public key here
+	}
+
+	itemJSON, err := json.Marshal(item)
 	if err != nil {
 		return err
 	}
-	cmdEdit := exec.Command("bw", "edit", "item", conn.ID, "--session", session)
-	cmdEdit.Stdin = bytes.NewReader(itemBytes)
-	var outEdit, errEdit bytes.Buffer
-	cmdEdit.Stdout = &outEdit
-	cmdEdit.Stderr = &errEdit
-	if err := cmdEdit.Run(); err != nil {
-		return fmt.Errorf("could not edit Bitwarden item: %s", errEdit.String())
+
+	encodeCmd := exec.Command("bw", "encode")
+	encodeCmd.Stdin = bytes.NewReader(itemJSON)
+	var encodedOutput, encodeErr bytes.Buffer
+	encodeCmd.Stdout = &encodedOutput
+	encodeCmd.Stderr = &encodeErr
+
+	if err := encodeCmd.Run(); err != nil {
+		errMsg := fmt.Sprintf("failed to encode Bitwarden item: %s - %s", err, encodeErr.String())
+		return fmt.Errorf(errMsg)
 	}
-	// Reload items from vault
+
+	editCmd := exec.Command("bw", "edit", "item", conn.ID, "--session", session)
+	editCmd.Stdin = bytes.NewReader(encodedOutput.Bytes())
+	var editOut, editErr bytes.Buffer
+	editCmd.Stdout = &editOut
+	editCmd.Stderr = &editErr
+
+	if err := editCmd.Run(); err != nil {
+		errMsg := fmt.Sprintf("could not edit Bitwarden item: %s - %s", err, editErr.String())
+		return fmt.Errorf(errMsg)
+	}
+
 	return bwm.Load()
 }
 

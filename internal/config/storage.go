@@ -8,4 +8,5 @@ type Storage interface {
 	DeleteConnection(id string) error
 	GetConnection(id string) (SSHConnection, bool)
 	ListConnections() []SSHConnection
+	EditConnection(conn SSHConnection) error
 }
