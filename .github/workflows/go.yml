@@ -60,6 +60,8 @@ jobs:
         mkdir -p dist
         # Linux
         GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/ssh-x-term
+        # Windows
+        GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/ssh-x-term
         # macOS
         GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/ssh-x-term
         # Add ARM64 builds for broader compatibility
@@ -73,6 +75,7 @@ jobs:
         name: Release ${{ steps.get_tag.outputs.new_tag }}
         files: |
           dist/ssh-x-term-linux-amd64
+          dist/ssh-x-term-windows-amd64.exe
           dist/ssh-x-term-darwin-amd64
           dist/ssh-x-term-linux-arm64
           dist/ssh-x-term-darwin-arm64
