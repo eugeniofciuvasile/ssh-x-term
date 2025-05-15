@@ -260,10 +260,14 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			if height <= 0 {
 				height = 20
 			}
+			visibleListHeight := height - headerLines - footerLines
+			if visibleListHeight < 5 {
+				visibleListHeight = 5
+			}
 			if err := m.bitwardenManager.Load(); err != nil {
 				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden connections: %v", err)
 			}
-			m.connectionList = components.NewConnectionList(m.bitwardenManager.ListConnections(), width, height)
+			m.connectionList = components.NewConnectionList(m.storageBackend.ListConnections(), width, visibleListHeight)
 			m.state = StateConnectionList
 			m.bitwardenLoginForm = nil
 			return nil
