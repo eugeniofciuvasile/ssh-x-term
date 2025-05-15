@@ -145,9 +145,6 @@ func (f *BitwardenConfigForm) Config() (serverURL, email string) {
 }
 
 func (f *BitwardenConfigForm) validateForm() (bool, string) {
-	if strings.TrimSpace(f.inputs[0].Value()) == "" {
-		return false, "Server URL is required."
-	}
 	if strings.TrimSpace(f.inputs[1].Value()) == "" {
 		return false, "Email is required."
 	}
