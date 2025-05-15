@@ -342,9 +342,6 @@ func (s *Session) Close() error {
 		// Timeout - force continue
 	}
 
-	// We intentionally don't try to show cursor here because it might cause EOF errors
-	// Let BubbleTea handle cursor visibility after we return
-
 	// Restore terminal state
 	if s.originalTty != nil {
 		term.Restore(s.originalFd, s.originalTty)
