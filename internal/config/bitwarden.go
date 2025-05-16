@@ -44,10 +44,18 @@ func (bwm *BitwardenManager) Login(password, otp string) error {
 	if err := checkBwCLI(); err != nil {
 		return err
 	}
-	args := []string{"login", bwm.cfg.Email, password, "--raw"}
+	// Set server config if custom URL is provided
 	if bwm.cfg.ServerURL != "" {
-		args = append(args, "--server", bwm.cfg.ServerURL)
+		cmd := exec.Command("bw", "config", "server", bwm.cfg.ServerURL)
+		var out, stderr bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("Bitwarden config server failed: %s", stderr.String())
+		}
 	}
+
+	args := []string{"login", bwm.cfg.Email, password, "--raw"}
 	if otp != "" {
 		args = append(args, "--code", otp)
 	}
