@@ -28,25 +28,29 @@ const (
 	StateSSHTerminal
 	StateBitwardenLogin
 	StateBitwardenUnlock
+	StateOrganizationSelect
+	StateCollectionSelect
 	headerLines = 4
 	footerLines = 4
 )
 
 type Model struct {
-	state               AppState
-	storageSelect       *components.StorageSelect
-	storageBackend      config.Storage
-	configManager       *config.ConfigManager
-	width               int
-	height              int
-	connectionList      *components.ConnectionList
-	connectionForm      *components.ConnectionForm
-	terminal            *components.TerminalComponent
-	bitwardenForm       *components.BitwardenConfigForm
-	errorMessage        string
-	bitwardenLoginForm  *components.BitwardenLoginForm
-	bitwardenManager    *config.BitwardenManager
-	bitwardenUnlockForm *components.BitwardenUnlockForm
+	state                     AppState
+	storageSelect             *components.StorageSelect
+	storageBackend            config.Storage
+	configManager             *config.ConfigManager
+	width                     int
+	height                    int
+	connectionList            *components.ConnectionList
+	connectionForm            *components.ConnectionForm
+	terminal                  *components.TerminalComponent
+	bitwardenForm             *components.BitwardenConfigForm
+	errorMessage              string
+	bitwardenLoginForm        *components.BitwardenLoginForm
+	bitwardenManager          *config.BitwardenManager
+	bitwardenUnlockForm       *components.BitwardenUnlockForm
+	bitwardenOrganizationList *components.BitwardenOrganizationList
+	bitwardenCollectionList   *components.BitwardenCollectionList
 }
 
 func NewModel() *Model {
