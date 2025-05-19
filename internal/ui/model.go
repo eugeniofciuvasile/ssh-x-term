@@ -135,7 +135,11 @@ func loadConnectionsCmd(backend config.Storage) tea.Cmd {
 			}
 			return LoadConnectionsFinishedMsg{Connections: cm.ListConnections()}
 		} else if bw, ok := backend.(*config.BitwardenManager); ok {
-			err = bw.LoadConnectionsByCollectionId(bw.GetSelectedCollection().ID)
+			if bw.IsPersonalVault() {
+				err = bw.Load()
+			} else {
+				err = bw.LoadConnectionsByCollectionId(bw.GetSelectedCollection().ID)
+			}
 			if err != nil {
 				return LoadConnectionsFinishedMsg{Err: err}
 			}
