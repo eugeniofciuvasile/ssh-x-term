@@ -9,20 +9,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// collectionItem represents a collection in the list
 type collectionItem struct {
 	collection config.Collection
 }
 
-func (i collectionItem) FilterValue() string {
-	return i.collection.Name
-}
+func (i collectionItem) FilterValue() string { return i.collection.Name }
+func (i collectionItem) Title() string       { return i.collection.Name }
+func (i collectionItem) Description() string { return "" }
 
-func (i collectionItem) Title() string {
-	return i.collection.Name
-}
-
-// BitwardenCollectionList is a Bubble Tea component for listing Bitwarden collections
 type BitwardenCollectionList struct {
 	list                  list.Model
 	collections           []config.Collection
@@ -30,22 +24,12 @@ type BitwardenCollectionList struct {
 	highlightedCollection *config.Collection
 }
 
-// NewBitwardenCollectionList creates a new collection list component.
-// width and height should be set to the current terminal size.
-func NewBitwardenCollectionList(collections []config.Collection, width, height int) *BitwardenCollectionList {
+func NewBitwardenCollectionList(collections []config.Collection) *BitwardenCollectionList {
 	items := make([]list.Item, len(collections))
 	for i, col := range collections {
 		items[i] = collectionItem{collection: col}
 	}
-
-	if width <= 0 {
-		width = 60
-	}
-	if height <= 0 {
-		height = 20
-	}
-
-	l := list.New(items, list.NewDefaultDelegate(), width, height)
+	l := list.New(items, list.NewDefaultDelegate(), 60, 20)
 	l.Title = "Collections"
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
@@ -65,19 +49,14 @@ func NewBitwardenCollectionList(collections []config.Collection, width, height i
 	}
 }
 
-func (cl *BitwardenCollectionList) Init() tea.Cmd {
-	return nil
-}
+func (cl *BitwardenCollectionList) Init() tea.Cmd { return nil }
 
 func (cl *BitwardenCollectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		cl.list.SetWidth(msg.Width)
-		cl.list.SetHeight(msg.Height - 4) // Leave room for help and status
+		cl.SetSize(msg.Width, msg.Height)
 		return cl, nil
-
 	case tea.KeyMsg:
 		if cl.list.FilterState() == list.Filtering {
 			newList, cmd := cl.list.Update(msg)
@@ -86,20 +65,16 @@ func (cl *BitwardenCollectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			selectedItem := cl.list.SelectedItem()
-			if selectedItem != nil {
-				colItem, ok := selectedItem.(collectionItem)
-				if ok {
+			if selectedItem := cl.list.SelectedItem(); selectedItem != nil {
+				if colItem, ok := selectedItem.(collectionItem); ok {
 					cl.selectedCollection = &colItem.collection
 					return cl, nil
 				}
 			}
 		}
 	}
-
 	newList, cmd := cl.list.Update(msg)
 	cl.list = newList
-
 	if item := cl.list.SelectedItem(); item != nil {
 		if colItem, ok := item.(collectionItem); ok {
 			cl.highlightedCollection = &colItem.collection
@@ -107,7 +82,6 @@ func (cl *BitwardenCollectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	} else {
 		cl.highlightedCollection = nil
 	}
-
 	return cl, cmd
 }
 
@@ -115,18 +89,18 @@ func (cl *BitwardenCollectionList) View() string {
 	if len(cl.collections) == 0 {
 		return fmt.Sprintf("\n%s\n\n  No collections found.\n\n", titleStyle.Render("Collections"))
 	}
-	return fmt.Sprintf("%s", cl.list.View())
+	return cl.list.View()
 }
 
-func (cl *BitwardenCollectionList) SelectedOrganization() *config.Collection {
+func (cl *BitwardenCollectionList) SelectedCollection() *config.Collection {
 	return cl.selectedCollection
 }
 
-func (cl *BitwardenCollectionList) HighlightedOrganization() *config.Collection {
+func (cl *BitwardenCollectionList) HighlightedCollection() *config.Collection {
 	return cl.highlightedCollection
 }
 
-func (cl *BitwardenCollectionList) SetOrganizations(collections []config.Collection) {
+func (cl *BitwardenCollectionList) SetCollections(collections []config.Collection) {
 	cl.collections = collections
 	items := make([]list.Item, len(collections))
 	for i, collection := range collections {
@@ -135,9 +109,7 @@ func (cl *BitwardenCollectionList) SetOrganizations(collections []config.Collect
 	cl.list.SetItems(items)
 }
 
-func (cl *BitwardenCollectionList) List() *list.Model {
-	return &cl.list
-}
+func (cl *BitwardenCollectionList) List() *list.Model { return &cl.list }
 
 func (cl *BitwardenCollectionList) Reset() {
 	cl.selectedCollection = nil
@@ -149,10 +121,13 @@ func (cl *BitwardenCollectionList) Reset() {
 	}
 }
 
-func (cl *BitwardenCollectionList) SetWidth(width int) {
+func (cl *BitwardenCollectionList) SetSize(width, height int) {
+	if width <= 0 {
+		width = 60
+	}
+	if height <= 0 {
+		height = 20
+	}
 	cl.list.SetWidth(width)
-}
-
-func (cl *BitwardenCollectionList) SetHeight(height int) {
-	cl.list.SetHeight(height)
+	cl.list.SetHeight(height - 4)
 }
