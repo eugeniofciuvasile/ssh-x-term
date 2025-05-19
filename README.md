@@ -20,7 +20,7 @@ Cross-platform features include support for sshpass (Unix), plink.exe (Windows),
 ```
 ssh-x-term/
 ├── cmd/
-│   └── ssh-x-term/
+│   └── sxt/
 │       └── main.go                        # Application entry point
 ├── internal/
 │   ├── config/
@@ -76,11 +76,11 @@ ssh-x-term/
 ```sh
 git clone https://github.com/eugeniofciuvasile/ssh-x-term.git
 cd ssh-x-term
-go build -o ssh-x-term ./cmd/ssh-x-term
+go build -o sxt ./cmd/sxt
 ```
 Or install globally:
 ```sh
-go install ./cmd/ssh-x-term
+go install ./cmd/sxt
 ```
 Or download the executable, .zip from the release.
 
@@ -88,9 +88,9 @@ Or download the executable, .zip from the release.
 
 1. **Run the app:**
     ```sh
-    ./ssh-x-term
+    ./sxt
     # or, if installed globally:
-    ssh-x-term
+    sxt
     ```
 2. **Manage SSH connections:**
     - Press `a` to add, `e` to edit, `d` to delete a connection.
