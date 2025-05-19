@@ -96,9 +96,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.bitwardenLoginForm.SetError("Login failed")
 			}
+			m.formHasError = true
+			m.bitwardenLoginForm.ResetSubmitted()
+			m.bitwardenLoginForm = components.NewBitwardenLoginForm()
 			return m, tea.Batch(cmds...)
 		}
 
+		m.formHasError = false
 		m.storageBackend = m.bitwardenManager
 		m.loading = true
 		cmd := loadBitwardenOrganizationsCmd(m.bitwardenManager)
@@ -114,9 +118,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.bitwardenUnlockForm.SetError("Unlock failed")
 			}
+			m.formHasError = true
+			m.bitwardenUnlockForm.ResetSubmitted()
+			m.bitwardenUnlockForm = components.NewBitwardenUnlockForm()
 			return m, tea.Batch(cmds...)
 		}
 
+		m.formHasError = false
 		m.storageBackend = m.bitwardenManager
 		m.loading = true
 		cmd := loadBitwardenOrganizationsCmd(m.bitwardenManager)
@@ -140,6 +148,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			return m, tea.Batch(cmds...)
+		}
+
+		if m.formHasError {
+			if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
+				// Handle escape key in error state
+				switch m.state {
+				case StateBitwardenLogin:
+					m.bitwardenLoginForm = nil
+					m.formHasError = false
+					m.state = StateSelectStorage
+					m.storageSelect = components.NewStorageSelect()
+					cmds = append(cmds, m.storageSelect.Init())
+					return m, tea.Batch(cmds...)
+
+				case StateBitwardenUnlock:
+					m.bitwardenUnlockForm = nil
+					m.formHasError = false
+					m.state = StateSelectStorage
+					m.storageSelect = components.NewStorageSelect()
+					cmds = append(cmds, m.storageSelect.Init())
+					return m, tea.Batch(cmds...)
+				}
+			}
 		}
 
 		switch m.state {
@@ -236,6 +267,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(cmds...)
 				case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
 					// Toggle open personal SSH connections
+					m.bitwardenManager.SetPersonalVault(true)
 					cmd := m.loadPersonalVaultConnections()
 					cmds = append(cmds, cmd)
 					return m, tea.Batch(cmds...)

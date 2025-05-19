@@ -18,20 +18,23 @@ type BitwardenConfig struct {
 }
 
 type BitwardenManager struct {
-	cfg           *BitwardenConfig
-	session       string
-	authed        bool
-	vaultMutex    sync.Mutex
-	items         map[string]SSHConnection
-	organizations []Organization
-	collections   []Collection
-	personalVault bool
+	cfg                *BitwardenConfig
+	session            string
+	authed             bool
+	vaultMutex         sync.Mutex
+	items              map[string]SSHConnection
+	organizations      []Organization
+	collections        []Collection
+	personalVault      bool
+	selectedCollection *Collection
 }
 
 func NewBitwardenManager(cfg *BitwardenConfig) (*BitwardenManager, error) {
 	return &BitwardenManager{
-		cfg:   cfg,
-		items: make(map[string]SSHConnection),
+		cfg:                cfg,
+		items:              make(map[string]SSHConnection),
+		selectedCollection: nil,
+		personalVault:      false,
 	}, nil
 }
 
@@ -105,6 +108,14 @@ func (bmw *BitwardenManager) SetPersonalVault(value bool) {
 
 func (bwm *BitwardenManager) IsPersonalVault() bool {
 	return bwm.personalVault
+}
+
+func (bwm *BitwardenManager) GetSelectedCollection() *Collection {
+	return bwm.selectedCollection
+}
+
+func (bwm *BitwardenManager) SetSelectedCollection(collection *Collection) {
+	bwm.selectedCollection = collection
 }
 
 // ---- Storage Interface Implementation ----
@@ -322,7 +333,11 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 	if err := createCmd.Run(); err != nil {
 		return fmt.Errorf("failed to create Bitwarden item: %s - %s", err, createErr.String())
 	}
-	return bwm.LoadConnectionsByCollectionId(collectionID)
+	if bwm.IsPersonalVault() {
+		return bwm.Load()
+	} else {
+		return bwm.LoadConnectionsByCollectionId(collectionID)
+	}
 }
 
 func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
@@ -420,7 +435,15 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 		return fmt.Errorf(errMsg)
 	}
 
-	return bwm.Load()
+	if bwm.IsPersonalVault() {
+		return bwm.Load()
+	} else {
+		var collectionID string
+		if bwm.GetSelectedCollection() != nil {
+			collectionID = bwm.GetSelectedCollection().ID
+		}
+		return bwm.LoadConnectionsByCollectionId(collectionID)
+	}
 }
 
 func (bwm *BitwardenManager) Status() (loggedIn bool, unlocked bool, err error) {
