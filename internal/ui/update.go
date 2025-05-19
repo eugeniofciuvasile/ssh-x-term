@@ -25,12 +25,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errorMessage = msg.Err.Error()
 			return m, tea.Batch(cmds...)
 		}
-		
+
 		m.connectionList = components.NewConnectionList(msg.Connections)
 		m.connectionList.SetSize(m.width, m.listHeight())
 		m.state = StateConnectionList
 		return m, tea.Batch(cmds...)
-		
+
 	case BitwardenStatusMsg:
 		m.loading = false
 		if msg.Err != nil {
@@ -38,7 +38,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = StateSelectStorage
 			return m, tea.Batch(cmds...)
 		}
-		
+
 		if !msg.LoggedIn {
 			m.bitwardenForm = components.NewBitwardenConfigForm()
 			m.state = StateBitwardenConfig
@@ -51,43 +51,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
-		
+
 	case BitwardenLoadOrganizationsMsg:
 		m.loading = false
 		if msg.Err != nil {
 			m.errorMessage = msg.Err.Error()
 			return m, tea.Batch(cmds...)
 		}
-		
+
 		m.bitwardenOrganizationList = components.NewBitwardenOrganizationList(msg.Organizations)
 		m.bitwardenOrganizationList.SetSize(m.width, m.listHeight())
 		m.state = StateOrganizationSelect
 		return m, tea.Batch(cmds...)
-		
+
 	case BitwardenLoadCollectionsMsg:
 		m.loading = false
 		if msg.Err != nil {
 			m.errorMessage = msg.Err.Error()
 			return m, tea.Batch(cmds...)
 		}
-		
+
 		m.bitwardenCollectionList = components.NewBitwardenCollectionList(msg.Collections)
 		m.bitwardenCollectionList.SetSize(m.width, m.listHeight())
 		m.state = StateCollectionSelect
 		return m, tea.Batch(cmds...)
-		
+
 	case BitwardenLoadConnectionsByCollectionMsg:
 		m.loading = false
 		if msg.Err != nil {
 			m.errorMessage = msg.Err.Error()
 			return m, tea.Batch(cmds...)
 		}
-		
+
 		m.connectionList = components.NewConnectionList(msg.Connections)
 		m.connectionList.SetSize(m.width, m.listHeight())
 		m.state = StateConnectionList
 		return m, tea.Batch(cmds...)
-		
+
 	case BitwardenLoginResultMsg:
 		m.loading = false
 		if !msg.Success || msg.Err != nil {
@@ -98,14 +98,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
-		
+
 		m.storageBackend = m.bitwardenManager
 		m.loading = true
 		cmd := loadBitwardenOrganizationsCmd(m.bitwardenManager)
 		cmds = append(cmds, cmd)
 		m.bitwardenLoginForm = nil
 		return m, tea.Batch(cmds...)
-		
+
 	case BitwardenUnlockResultMsg:
 		m.loading = false
 		if !msg.Success || msg.Err != nil {
@@ -116,14 +116,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
-		
+
 		m.storageBackend = m.bitwardenManager
 		m.loading = true
 		cmd := loadBitwardenOrganizationsCmd(m.bitwardenManager)
 		cmds = append(cmds, cmd)
 		m.bitwardenUnlockForm = nil
 		return m, tea.Batch(cmds...)
-	
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -157,10 +157,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Go back to collection select
 					m.resetConnectionState()
 					if m.state == StateSelectStorage {
-                        // If we're going back to storage select, properly initialize it
-                        m.storageSelect = components.NewStorageSelect()
-                        cmds = append(cmds, m.storageSelect.Init())
-                    }
+						// If we're going back to storage select, properly initialize it
+						m.storageSelect = components.NewStorageSelect()
+						cmds = append(cmds, m.storageSelect.Init())
+					}
 					return m, tea.Batch(cmds...)
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c"))):
 					return m, tea.Quit
@@ -186,7 +186,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.errorMessage = err.Error()
 							return m, tea.Batch(cmds...)
 						}
-						
+
 						cmd := m.ReloadConnections()
 						cmds = append(cmds, cmd)
 						m.connectionList.Reset()
@@ -230,9 +230,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 					// Go back to storage select
 					m.resetOrganizationState()
-                    // Initialize storage select when going back
-                    cmd := m.storageSelect.Init()
-                    cmds = append(cmds, cmd)
+					// Initialize storage select when going back
+					cmd := m.storageSelect.Init()
+					cmds = append(cmds, cmd)
 					return m, tea.Batch(cmds...)
 				case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
 					// Toggle open personal SSH connections
