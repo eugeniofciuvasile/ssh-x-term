@@ -95,6 +95,7 @@ type Model struct {
 	bitwardenCollectionList   *components.BitwardenCollectionList
 	spinner                   spinner.Model
 	loading                   bool
+	formHasError              bool
 }
 
 func NewModel() *Model {
@@ -134,7 +135,7 @@ func loadConnectionsCmd(backend config.Storage) tea.Cmd {
 			}
 			return LoadConnectionsFinishedMsg{Connections: cm.ListConnections()}
 		} else if bw, ok := backend.(*config.BitwardenManager); ok {
-			err = bw.Load()
+			err = bw.LoadConnectionsByCollectionId(bw.GetSelectedCollection().ID)
 			if err != nil {
 				return LoadConnectionsFinishedMsg{Err: err}
 			}
@@ -369,6 +370,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		m.bitwardenCollectionList = model.(*components.BitwardenCollectionList)
 		if collection := m.bitwardenCollectionList.SelectedCollection(); collection != nil {
 			m.loading = true
+			m.bitwardenManager.SetSelectedCollection(collection)
 			m.storageBackend = m.bitwardenManager
 			return loadBitwardenConnectionsByCollectionCmd(m.bitwardenManager, collection.ID)
 		}
@@ -541,20 +543,28 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 	}
 	return cmd
 }
+
 // Helper to reset connection state
 func (m *Model) resetConnectionState() {
 	if m.connectionList != nil {
 		m.connectionList.Reset()
 	}
-	if m.bitwardenCollectionList != nil {
-		m.bitwardenCollectionList.Reset()
-	}
-	if m.bitwardenCollectionList == nil {
+	switch m.storageSelect.SelectedBackend() {
+	case components.StorageLocal:
 		m.state = StateSelectStorage
 		// Create a new storage select when returning to this state
 		m.storageSelect = components.NewStorageSelect()
-	} else {
-		m.state = StateCollectionSelect
+	case components.StorageBitwarden:
+		if m.bitwardenCollectionList != nil {
+			m.bitwardenCollectionList.Reset()
+		}
+		if m.bitwardenCollectionList == nil {
+			m.state = StateSelectStorage
+			// Create a new storage select when returning to this state
+			m.storageSelect = components.NewStorageSelect()
+		} else {
+			m.state = StateCollectionSelect
+		}
 	}
 }
 
