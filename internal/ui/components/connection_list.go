@@ -2,7 +2,6 @@ package components
 
 import (
 	"fmt"
-
 	"ssh-x-term/internal/config"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -19,18 +18,13 @@ var (
 	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
 )
 
-// connectionItem represents an item in the connection list
 type connectionItem struct {
 	connection config.SSHConnection
 }
 
-func (i connectionItem) FilterValue() string {
-	return i.connection.Name
-}
+func (i connectionItem) FilterValue() string { return i.connection.Name }
 
-func (i connectionItem) Title() string {
-	return i.connection.Name
-}
+func (i connectionItem) Title() string { return i.connection.Name }
 
 func (i connectionItem) Description() string {
 	port := ""
@@ -40,7 +34,6 @@ func (i connectionItem) Description() string {
 	return fmt.Sprintf("%s@%s%s", i.connection.Username, i.connection.Host, port)
 }
 
-// ConnectionList is a Bubble Tea component for listing SSH connections
 type ConnectionList struct {
 	list              list.Model
 	connections       []config.SSHConnection
@@ -49,22 +42,12 @@ type ConnectionList struct {
 	openInNewTerminal bool
 }
 
-// NewConnectionList creates a new connection list component.
-// width and height should be set to the current terminal size.
-func NewConnectionList(connections []config.SSHConnection, width, height int) *ConnectionList {
+func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 	items := make([]list.Item, len(connections))
 	for i, conn := range connections {
 		items[i] = connectionItem{connection: conn}
 	}
-
-	if width <= 0 {
-		width = 60
-	}
-	if height <= 0 {
-		height = 20
-	}
-
-	l := list.New(items, list.NewDefaultDelegate(), width, height)
+	l := list.New(items, list.NewDefaultDelegate(), 60, 20)
 	if config.IsTmuxAvailable {
 		l.Title = "SSH Connections - Toggle open in new terminal [x]"
 	} else {
@@ -76,7 +59,6 @@ func NewConnectionList(connections []config.SSHConnection, width, height int) *C
 	l.Styles.PaginationStyle = paginationStyle
 	l.Styles.HelpStyle = helpStyle
 
-	// Set up keybindings
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add connection")),
@@ -99,19 +81,14 @@ func NewConnectionList(connections []config.SSHConnection, width, height int) *C
 	}
 }
 
-func (cl *ConnectionList) Init() tea.Cmd {
-	return nil
-}
+func (cl *ConnectionList) Init() tea.Cmd { return nil }
 
 func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		cl.list.SetWidth(msg.Width)
-		cl.list.SetHeight(msg.Height - 4) // Leave room for help and status
+		cl.SetSize(msg.Width, msg.Height)
 		return cl, nil
-
 	case tea.KeyMsg:
 		if cl.list.FilterState() == list.Filtering {
 			newList, cmd := cl.list.Update(msg)
@@ -120,10 +97,8 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			selectedItem := cl.list.SelectedItem()
-			if selectedItem != nil {
-				connItem, ok := selectedItem.(connectionItem)
-				if ok {
+			if selectedItem := cl.list.SelectedItem(); selectedItem != nil {
+				if connItem, ok := selectedItem.(connectionItem); ok {
 					cl.selectedConn = &connItem.connection
 					return cl, nil
 				}
@@ -137,10 +112,8 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cl.list.Title = fmt.Sprintf("SSH Connections - Toggle open in new terminal %s", checkboxStr)
 		}
 	}
-
 	newList, cmd := cl.list.Update(msg)
 	cl.list = newList
-
 	if item := cl.list.SelectedItem(); item != nil {
 		if connItem, ok := item.(connectionItem); ok {
 			cl.highlightedConn = &connItem.connection
@@ -148,7 +121,6 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	} else {
 		cl.highlightedConn = nil
 	}
-
 	return cl, cmd
 }
 
@@ -156,20 +128,16 @@ func (cl *ConnectionList) View() string {
 	if len(cl.connections) == 0 {
 		return fmt.Sprintf("\n%s\n\n  No connections found. Press 'a' to add a connection.\n\n", titleStyle.Render("SSH Connections"))
 	}
-	return fmt.Sprintf("%s", cl.list.View())
+	return cl.list.View()
 }
 
-func (cl *ConnectionList) SelectedConnection() *config.SSHConnection {
-	return cl.selectedConn
-}
+func (cl *ConnectionList) SelectedConnection() *config.SSHConnection { return cl.selectedConn }
 
 func (cl *ConnectionList) HighlightedConnection() *config.SSHConnection {
 	return cl.highlightedConn
 }
 
-func (cl *ConnectionList) OpenInNewTerminal() bool {
-	return cl.openInNewTerminal
-}
+func (cl *ConnectionList) OpenInNewTerminal() bool { return cl.openInNewTerminal }
 
 func (cl *ConnectionList) ToggleOpenInNewTerminal() {
 	cl.openInNewTerminal = !cl.openInNewTerminal
@@ -184,9 +152,7 @@ func (cl *ConnectionList) SetConnections(connections []config.SSHConnection) {
 	cl.list.SetItems(items)
 }
 
-func (cl *ConnectionList) List() *list.Model {
-	return &cl.list
-}
+func (cl *ConnectionList) List() *list.Model { return &cl.list }
 
 func (cl *ConnectionList) Reset() {
 	cl.selectedConn = nil
@@ -198,10 +164,13 @@ func (cl *ConnectionList) Reset() {
 	}
 }
 
-func (cl *ConnectionList) SetWidth(width int) {
+func (cl *ConnectionList) SetSize(width, height int) {
+	if width <= 0 {
+		width = 60
+	}
+	if height <= 0 {
+		height = 20
+	}
 	cl.list.SetWidth(width)
-}
-
-func (cl *ConnectionList) SetHeight(height int) {
-	cl.list.SetHeight(height)
+	cl.list.SetHeight(height - 4)
 }
