@@ -102,3 +102,7 @@ func (f *BitwardenLoginForm) OTP() string {
 func (f *BitwardenLoginForm) SetError(msg string) {
 	f.errorMsg = msg
 }
+
+func (f *BitwardenLoginForm) ResetSubmitted() {
+	f.submitted = false
+}

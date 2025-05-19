@@ -61,12 +61,19 @@ func (f *BitwardenUnlockForm) View() string {
 func (f *BitwardenUnlockForm) IsSubmitted() bool {
 	return f.submitted
 }
+
 func (f *BitwardenUnlockForm) IsCanceled() bool {
 	return f.canceled
 }
+
 func (f *BitwardenUnlockForm) Password() string {
 	return f.passwordInput.Value()
 }
+
 func (f *BitwardenUnlockForm) SetError(msg string) {
 	f.errorMsg = msg
+}
+
+func (f *BitwardenUnlockForm) ResetSubmitted() {
+	f.submitted = false
 }

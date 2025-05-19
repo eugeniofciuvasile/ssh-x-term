@@ -314,9 +314,6 @@ func (m *ConnectionForm) updateConnection() {
 		m.inputs[6].SetValue(id)
 	}
 
-	// Debug print
-	fmt.Printf("DEBUG: Submitting connection with ID: %s (editing: %v)\n", id, m.editing)
-
 	// Parse port
 	port := 22
 	if strings.TrimSpace(m.inputs[2].Value()) != "" {
