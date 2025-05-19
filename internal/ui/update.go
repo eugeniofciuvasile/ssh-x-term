@@ -267,7 +267,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(cmds...)
 				case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
 					// Toggle open personal SSH connections
-					m.bitwardenManager.SetPersonalVault(true)
 					cmd := m.loadPersonalVaultConnections()
 					cmds = append(cmds, cmd)
 					return m, tea.Batch(cmds...)
