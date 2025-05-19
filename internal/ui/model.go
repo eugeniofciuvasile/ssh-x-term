@@ -14,8 +14,47 @@ import (
 	"ssh-x-term/internal/config"
 	"ssh-x-term/internal/ui/components"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
+
+// Message types for async operations
+type LoadConnectionsFinishedMsg struct {
+	Connections []config.SSHConnection
+	Err         error
+}
+
+type BitwardenStatusMsg struct {
+	LoggedIn bool
+	Unlocked bool
+	Err      error
+}
+
+type BitwardenLoadOrganizationsMsg struct {
+	Organizations []config.Organization
+	Err           error
+}
+
+type BitwardenLoadCollectionsMsg struct {
+	Collections []config.Collection
+	Err         error
+}
+
+type BitwardenLoadConnectionsByCollectionMsg struct {
+	Connections []config.SSHConnection
+	Err         error
+}
+
+type BitwardenLoginResultMsg struct {
+	Success bool
+	Err     error
+}
+
+type BitwardenUnlockResultMsg struct {
+	Success bool
+	Err     error
+}
 
 type AppState int
 
@@ -54,19 +93,27 @@ type Model struct {
 	bitwardenUnlockForm       *components.BitwardenUnlockForm
 	bitwardenOrganizationList *components.BitwardenOrganizationList
 	bitwardenCollectionList   *components.BitwardenCollectionList
+	spinner                   spinner.Model
+	loading                   bool
+	formHasError              bool
 }
 
 func NewModel() *Model {
+	s := spinner.New()
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	s.Spinner = spinner.Dot
 	return &Model{
 		state:         StateSelectStorage,
 		storageSelect: components.NewStorageSelect(),
 		width:         defaultWidth,
 		height:        defaultHeight,
+		spinner:       s,
+		loading:       false,
 	}
 }
 
 func (m *Model) Init() tea.Cmd {
-	return nil
+	return m.spinner.Tick
 }
 
 func (m *Model) listHeight() int {
@@ -77,56 +124,99 @@ func (m *Model) listHeight() int {
 	return usableHeight
 }
 
-func (m *Model) ReloadConnections() {
-	switch backend := m.storageBackend.(type) {
-	case *config.ConfigManager:
-		if err := backend.Load(); err != nil {
-			m.errorMessage = "Failed to reload connections: " + err.Error()
-			return
+// Async commands
+func loadConnectionsCmd(backend config.Storage) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		if cm, ok := backend.(*config.ConfigManager); ok {
+			err = cm.Load()
+			if err != nil {
+				return LoadConnectionsFinishedMsg{Err: err}
+			}
+			return LoadConnectionsFinishedMsg{Connections: cm.ListConnections()}
+		} else if bw, ok := backend.(*config.BitwardenManager); ok {
+			err = bw.LoadConnectionsByCollectionId(bw.GetSelectedCollection().ID)
+			if err != nil {
+				return LoadConnectionsFinishedMsg{Err: err}
+			}
+			return LoadConnectionsFinishedMsg{Connections: bw.ListConnections()}
 		}
-		m.connectionList = components.NewConnectionList(backend.ListConnections())
-		m.connectionList.SetSize(m.width, m.listHeight())
-	case *config.BitwardenManager:
-		if m.bitwardenManager.IsPersonalVault() {
-			if err := backend.Load(); err != nil {
-				m.errorMessage = "Failed to reload Bitwarden connections: " + err.Error()
-				return
-			}
-			m.connectionList = components.NewConnectionList(backend.ListConnections())
-			m.connectionList.SetSize(m.width, m.listHeight())
-		} else {
-			if m.bitwardenCollectionList != nil && m.bitwardenCollectionList.HighlightedCollection() != nil {
-				collection := m.bitwardenCollectionList.HighlightedCollection()
-				if err := backend.LoadConnectionsByCollectionId(collection.ID); err != nil {
-					m.errorMessage = "Failed to reload Bitwarden connections: " + err.Error()
-					return
-				}
-				m.connectionList = components.NewConnectionList(backend.ListConnections())
-				m.connectionList.SetSize(m.width, m.listHeight())
-			}
+		return LoadConnectionsFinishedMsg{Err: fmt.Errorf("unknown storage backend")}
+	}
+}
+
+func loadBitwardenStatusCmd(bw *config.BitwardenManager) tea.Cmd {
+	return func() tea.Msg {
+		loggedIn, unlocked, err := bw.Status()
+		return BitwardenStatusMsg{
+			LoggedIn: loggedIn,
+			Unlocked: unlocked,
+			Err:      err,
 		}
 	}
 }
 
-func (m *Model) SetSize(width, height int) {
-	if width <= 0 {
-		width = defaultWidth
+func loadBitwardenOrganizationsCmd(bw *config.BitwardenManager) tea.Cmd {
+	return func() tea.Msg {
+		err := bw.LoadOrganizations()
+		if err != nil {
+			return BitwardenLoadOrganizationsMsg{Err: err}
+		}
+		return BitwardenLoadOrganizationsMsg{Organizations: bw.ListOrganizations()}
 	}
-	if height <= 0 {
-		height = defaultHeight
-	}
-	m.width = width
-	m.height = height
+}
 
-	if m.connectionList != nil {
-		m.connectionList.SetSize(width, m.listHeight())
+func loadBitwardenCollectionsCmd(bw *config.BitwardenManager, orgID string) tea.Cmd {
+	return func() tea.Msg {
+		err := bw.LoadCollectionsByOrganizationId(orgID)
+		if err != nil {
+			return BitwardenLoadCollectionsMsg{Err: err}
+		}
+		return BitwardenLoadCollectionsMsg{Collections: bw.ListCollections()}
 	}
-	if m.bitwardenOrganizationList != nil {
-		m.bitwardenOrganizationList.SetSize(width, m.listHeight())
+}
+
+func loadBitwardenConnectionsByCollectionCmd(bw *config.BitwardenManager, collectionID string) tea.Cmd {
+	return func() tea.Msg {
+		err := bw.LoadConnectionsByCollectionId(collectionID)
+		if err != nil {
+			return BitwardenLoadConnectionsByCollectionMsg{Err: err}
+		}
+		return BitwardenLoadConnectionsByCollectionMsg{Connections: bw.ListConnections()}
 	}
-	if m.bitwardenCollectionList != nil {
-		m.bitwardenCollectionList.SetSize(width, m.listHeight())
+}
+
+func loginBitwardenCmd(bw *config.BitwardenManager, password, otp string) tea.Cmd {
+	return func() tea.Msg {
+		err := bw.Login(password, otp)
+		if err != nil {
+			return BitwardenLoginResultMsg{Success: false, Err: err}
+		}
+		return BitwardenLoginResultMsg{Success: true}
 	}
+}
+
+func unlockBitwardenCmd(bw *config.BitwardenManager, password string) tea.Cmd {
+	return func() tea.Msg {
+		err := bw.Unlock(password)
+		if err != nil {
+			return BitwardenUnlockResultMsg{Success: false, Err: err}
+		}
+		return BitwardenUnlockResultMsg{Success: true}
+	}
+}
+
+func (m *Model) ReloadConnections() tea.Cmd {
+	m.loading = true
+	return loadConnectionsCmd(m.storageBackend)
+}
+
+// Helper to load personal vault connections
+func (m *Model) loadPersonalVaultConnections() tea.Cmd {
+	m.loading = true
+	m.bitwardenManager.SetPersonalVault(true)
+	m.storageBackend = m.bitwardenManager
+	return loadConnectionsCmd(m.bitwardenManager)
 }
 
 // sanitizeFileName replaces all non-alphanumeric characters with underscores
@@ -190,50 +280,26 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		if m.storageSelect.IsChosen() {
 			switch m.storageSelect.SelectedBackend() {
 			case components.StorageLocal:
+				m.loading = true
 				cm, err := config.NewConfigManager()
 				if err != nil {
 					m.errorMessage = fmt.Sprintf("Error initializing local config: %s", err)
-					return nil
-				}
-				if err := cm.Load(); err != nil {
-					m.errorMessage = fmt.Sprintf("Error loading config: %s", err)
+					m.loading = false
 					return nil
 				}
 				m.storageBackend = cm
 				m.configManager = cm
-				m.connectionList = components.NewConnectionList(cm.ListConnections())
-				m.connectionList.SetSize(m.width, m.listHeight())
-				m.state = StateConnectionList
-				m.storageSelect = components.NewStorageSelect()
+				return loadConnectionsCmd(cm)
 			case components.StorageBitwarden:
+				m.loading = true
 				bwm, err := config.NewBitwardenManager(&config.BitwardenConfig{})
 				if err != nil {
 					m.errorMessage = fmt.Sprintf("Error initializing Bitwarden: %s", err)
+					m.loading = false
 					return nil
 				}
 				m.bitwardenManager = bwm
-				loggedIn, unlocked, err := bwm.Status()
-				if err != nil {
-					m.errorMessage = fmt.Sprintf("Error checking Bitwarden status: %s", err)
-					return nil
-				}
-				if !loggedIn {
-					m.bitwardenForm = components.NewBitwardenConfigForm()
-					m.state = StateBitwardenConfig
-				} else if !unlocked {
-					m.bitwardenUnlockForm = components.NewBitwardenUnlockForm()
-					m.state = StateBitwardenUnlock
-				} else {
-					if err := m.bitwardenManager.LoadOrganizations(); err != nil {
-						m.errorMessage = fmt.Sprintf("Failed to load Bitwarden organizations: %v", err)
-						m.state = StateBitwardenUnlock
-						return nil
-					}
-					m.bitwardenOrganizationList = components.NewBitwardenOrganizationList(m.bitwardenManager.ListOrganizations())
-					m.bitwardenOrganizationList.SetSize(m.width, m.listHeight())
-					m.state = StateOrganizationSelect
-				}
-				return nil
+				return loadBitwardenStatusCmd(bwm)
 			}
 		}
 		return nil
@@ -270,24 +336,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			return nil
 		}
 		if m.bitwardenLoginForm.IsSubmitted() {
+			m.loading = true
 			password := m.bitwardenLoginForm.Password()
 			otp := m.bitwardenLoginForm.OTP()
-			if err := m.bitwardenManager.Login(password, otp); err != nil {
-				m.bitwardenLoginForm.SetError(fmt.Sprintf("Login failed: %v", err))
-				m.bitwardenLoginForm = nil
-				m.state = StateSelectStorage
-				m.storageSelect = components.NewStorageSelect()
-				return nil
-			}
-			m.storageBackend = m.bitwardenManager
-			if err := m.bitwardenManager.LoadOrganizations(); err != nil {
-				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden organizations: %v", err)
-			}
-			m.bitwardenOrganizationList = components.NewBitwardenOrganizationList(m.bitwardenManager.ListOrganizations())
-			m.bitwardenOrganizationList.SetSize(m.width, m.listHeight())
-			m.state = StateOrganizationSelect
-			m.bitwardenLoginForm = nil
-			return nil
+			return loginBitwardenCmd(m.bitwardenManager, password, otp)
 		}
 		return nil
 
@@ -300,51 +352,27 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			return nil
 		}
 		if m.bitwardenUnlockForm.IsSubmitted() {
+			m.loading = true
 			password := m.bitwardenUnlockForm.Password()
-			if err := m.bitwardenManager.Unlock(password); err != nil {
-				m.bitwardenUnlockForm.SetError(fmt.Sprintf("Unlock failed: %v", err))
-				m.state = StateSelectStorage
-				m.bitwardenForm = nil
-				m.bitwardenUnlockForm = nil
-				m.storageSelect = components.NewStorageSelect()
-				return nil
-			}
-			m.storageBackend = m.bitwardenManager
-			if err := m.bitwardenManager.LoadOrganizations(); err != nil {
-				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden organizations: %v", err)
-			}
-			m.bitwardenOrganizationList = components.NewBitwardenOrganizationList(m.bitwardenManager.ListOrganizations())
-			m.bitwardenOrganizationList.SetSize(m.width, m.listHeight())
-			m.state = StateOrganizationSelect
-			m.bitwardenUnlockForm = nil
-			return nil
+			return unlockBitwardenCmd(m.bitwardenManager, password)
 		}
 		return nil
 
 	case StateOrganizationSelect:
 		m.bitwardenOrganizationList = model.(*components.BitwardenOrganizationList)
 		if org := m.bitwardenOrganizationList.SelectedOrganization(); org != nil {
+			m.loading = true
 			m.storageBackend = m.bitwardenManager
-			if err := m.bitwardenManager.LoadCollectionsByOrganizationId(org.ID); err != nil {
-				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden collections: %v", err)
-			}
-			m.bitwardenCollectionList = components.NewBitwardenCollectionList(m.bitwardenManager.ListCollections())
-			m.bitwardenCollectionList.SetSize(m.width, m.listHeight())
-			m.state = StateCollectionSelect
-			return nil
+			return loadBitwardenCollectionsCmd(m.bitwardenManager, org.ID)
 		}
 
 	case StateCollectionSelect:
 		m.bitwardenCollectionList = model.(*components.BitwardenCollectionList)
 		if collection := m.bitwardenCollectionList.SelectedCollection(); collection != nil {
+			m.loading = true
+			m.bitwardenManager.SetSelectedCollection(collection)
 			m.storageBackend = m.bitwardenManager
-			if err := m.bitwardenManager.LoadConnectionsByCollectionId(collection.ID); err != nil {
-				m.errorMessage = fmt.Sprintf("Failed to load Bitwarden connections: %v", err)
-			}
-			m.connectionList = components.NewConnectionList(m.bitwardenManager.ListConnections())
-			m.connectionList.SetSize(m.width, m.listHeight())
-			m.state = StateConnectionList
-			return nil
+			return loadBitwardenConnectionsByCollectionCmd(m.bitwardenManager, collection.ID)
 		}
 
 	case StateConnectionList:
@@ -465,6 +493,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			return nil
 		}
 		if m.connectionForm.IsSubmitted() {
+			m.loading = true
 			conn := m.connectionForm.Connection()
 			var err error
 			if m.state == StateEditConnection {
@@ -490,19 +519,18 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 					}
 				}
 			}
-			// Handle errors: Show error message and return to connection list
+
 			if err != nil {
+				m.loading = false
 				m.errorMessage = fmt.Sprintf("Failed to save connection: %s", err)
-				m.connectionForm = nil        // Reset the connection form
-				m.state = StateConnectionList // Return to the connection list state
-				m.ReloadConnections()         // Refresh the connection list
-				return nil
-			} else {
 				m.connectionForm = nil
 				m.state = StateConnectionList
-				m.ReloadConnections()
+				return loadConnectionsCmd(m.storageBackend)
 			}
-			return nil
+
+			m.connectionForm = nil
+			m.state = StateConnectionList
+			return loadConnectionsCmd(m.storageBackend)
 		}
 	case StateSSHTerminal:
 		m.terminal = model.(*components.TerminalComponent)
@@ -514,4 +542,49 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		}
 	}
 	return cmd
+}
+
+// Helper to reset connection state
+func (m *Model) resetConnectionState() {
+	if m.connectionList != nil {
+		m.connectionList.Reset()
+	}
+	switch m.storageSelect.SelectedBackend() {
+	case components.StorageLocal:
+		m.state = StateSelectStorage
+		// Create a new storage select when returning to this state
+		m.storageSelect = components.NewStorageSelect()
+	case components.StorageBitwarden:
+		if m.bitwardenCollectionList != nil {
+			m.bitwardenCollectionList.Reset()
+		}
+		if m.bitwardenCollectionList == nil {
+			m.state = StateSelectStorage
+			// Create a new storage select when returning to this state
+			m.storageSelect = components.NewStorageSelect()
+		} else {
+			m.state = StateCollectionSelect
+		}
+	}
+}
+
+// Helper to reset collection state
+func (m *Model) resetCollectionState() {
+	if m.bitwardenCollectionList != nil {
+		m.bitwardenCollectionList.Reset()
+	}
+	if m.bitwardenOrganizationList != nil {
+		m.bitwardenOrganizationList.Reset()
+	}
+	m.state = StateOrganizationSelect
+}
+
+// Helper to reset organization state
+func (m *Model) resetOrganizationState() {
+	if m.bitwardenOrganizationList != nil {
+		m.bitwardenOrganizationList.Reset()
+	}
+	m.state = StateSelectStorage
+	// Create a new storage select when returning to this state
+	m.storageSelect = components.NewStorageSelect()
 }
