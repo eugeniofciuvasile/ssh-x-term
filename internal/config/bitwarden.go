@@ -18,11 +18,14 @@ type BitwardenConfig struct {
 }
 
 type BitwardenManager struct {
-	cfg        *BitwardenConfig
-	session    string
-	authed     bool
-	vaultMutex sync.Mutex
-	items      map[string]SSHConnection
+	cfg           *BitwardenConfig
+	session       string
+	authed        bool
+	vaultMutex    sync.Mutex
+	items         map[string]SSHConnection
+	organizations []Organization
+	collections   []Collection
+	personalVault bool
 }
 
 func NewBitwardenManager(cfg *BitwardenConfig) (*BitwardenManager, error) {
@@ -96,6 +99,14 @@ func (bwm *BitwardenManager) SessionKey() (string, error) {
 	return bwm.session, nil
 }
 
+func (bmw *BitwardenManager) SetPersonalVault(value bool) {
+	bmw.personalVault = value
+}
+
+func (bwm *BitwardenManager) IsPersonalVault() bool {
+	return bwm.personalVault
+}
+
 // ---- Storage Interface Implementation ----
 
 // Load fetches all SSH connections from Bitwarden
@@ -108,7 +119,7 @@ func (bwm *BitwardenManager) Load() error {
 		return err
 	}
 
-	cmd := exec.Command("bw", "list", "items", "--session", session)
+	cmd := exec.Command("bw", "list", "items", "--session", session, "--organizationid", "null")
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
@@ -144,7 +155,7 @@ func (bwm *BitwardenManager) Load() error {
 			}
 			if uris, ok := login["uris"].([]any); ok && len(uris) > 0 {
 				if first, ok := uris[0].(map[string]any); ok {
-					if uri, ok := first["uri"].(string); ok {
+					if uri, ok := first["uri"].(string); ok && strings.HasPrefix(uri, "ssh://") {
 						rest := strings.TrimPrefix(uri, "ssh://")
 						hostport := strings.Split(rest, ":")
 						conn.Host = hostport[0]
@@ -155,6 +166,8 @@ func (bwm *BitwardenManager) Load() error {
 						} else {
 							conn.Port = 22
 						}
+					} else {
+						continue
 					}
 				}
 			}
@@ -204,17 +217,11 @@ func (bwm *BitwardenManager) GetConnection(id string) (SSHConnection, bool) {
 	return c, ok
 }
 
-func (bwm *BitwardenManager) ListConnections() []SSHConnection {
-	bwm.vaultMutex.Lock()
-	defer bwm.vaultMutex.Unlock()
-	conns := make([]SSHConnection, 0, len(bwm.items))
-	for _, c := range bwm.items {
-		conns = append(conns, c)
-	}
-	return conns
+func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
+	return bwm.AddConnectionInCollectionAndOrganization(conn, "", "")
 }
 
-func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
+func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHConnection, organizationID, collectionID string) error {
 	session, err := bwm.SessionKey()
 	if err != nil {
 		return err
@@ -271,14 +278,28 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 		},
 	}
 
-	item := map[string]any{
-		"type":   1, // Login
-		"name":   conn.Name,
-		"login":  login,
-		"fields": fields,
-		"notes":  publicKey,
+	var item map[string]any
+	if collectionID != "" && organizationID != "" {
+		item = map[string]any{
+			"type":           1, // Login
+			"name":           conn.Name,
+			"login":          login,
+			"fields":         fields,
+			"notes":          publicKey,
+			"collectionIds":  []string{collectionID},
+			"organizationId": organizationID,
+		}
+	} else {
+		item = map[string]any{
+			"type":   1, // Login
+			"name":   conn.Name,
+			"login":  login,
+			"fields": fields,
+			"notes":  publicKey,
+		}
 	}
 
+	// Marshal the item to JSON
 	itemJSON, err := json.Marshal(item)
 	if err != nil {
 		return err
@@ -292,6 +313,7 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 	if err := encodeCmd.Run(); err != nil {
 		return fmt.Errorf("failed to encode Bitwarden item: %s - %s", err, encodeErr.String())
 	}
+
 	createCmd := exec.Command("bw", "create", "item", "--session", session)
 	createCmd.Stdin = bytes.NewReader(encodedOutput.Bytes())
 	var createOut, createErr bytes.Buffer
@@ -300,7 +322,7 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 	if err := createCmd.Run(); err != nil {
 		return fmt.Errorf("failed to create Bitwarden item: %s - %s", err, createErr.String())
 	}
-	return bwm.Load()
+	return bwm.LoadConnectionsByCollectionId(collectionID)
 }
 
 func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
@@ -428,4 +450,193 @@ func (bwm *BitwardenManager) Status() (loggedIn bool, unlocked bool, err error) 
 		return true, true, nil
 	}
 	return false, false, fmt.Errorf("unknown Bitwarden status: %s", stat.Status)
+}
+
+func (bwm *BitwardenManager) Sync() error {
+	session, err := bwm.SessionKey()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("bw", "sync", "--session", session)
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("could not sync Bitwarden vault: %s", stderr.String())
+	}
+	return nil
+}
+
+// LoadOrganizations syncs and loads all organizations for the user
+func (bwm *BitwardenManager) LoadOrganizations() error {
+	bwm.vaultMutex.Lock()
+	defer bwm.vaultMutex.Unlock()
+	if err := bwm.Sync(); err != nil {
+		return err
+	}
+	session, err := bwm.SessionKey()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("bw", "list", "organizations", "--session", session)
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("could not list organizations: %s", stderr.String())
+	}
+	var orgs []Organization
+	if err := json.Unmarshal(out.Bytes(), &orgs); err != nil {
+		return fmt.Errorf("failed to parse organizations JSON: %w", err)
+	}
+	bwm.organizations = orgs
+	return nil
+}
+
+func (bwm *BitwardenManager) ListOrganizations() []Organization {
+	bwm.vaultMutex.Lock()
+	defer bwm.vaultMutex.Unlock()
+	return bwm.organizations
+}
+
+// LoadCollectionsByOrganizationId syncs and loads all collections for the selected organization
+func (bwm *BitwardenManager) LoadCollectionsByOrganizationId(organizationId string) error {
+	bwm.vaultMutex.Lock()
+	defer bwm.vaultMutex.Unlock()
+	if err := bwm.Sync(); err != nil {
+		return err
+	}
+	session, err := bwm.SessionKey()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("bw", "list", "collections", "--organizationid", organizationId, "--session", session)
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("could not list collections: %s", stderr.String())
+	}
+	var collections []Collection
+	if err := json.Unmarshal(out.Bytes(), &collections); err != nil {
+		return fmt.Errorf("failed to parse collections JSON: %w", err)
+	}
+	// Only cache collections for the selected org
+	bwm.collections = collections
+	return nil
+}
+
+func (bwm *BitwardenManager) ListCollections() []Collection {
+	bwm.vaultMutex.Lock()
+	defer bwm.vaultMutex.Unlock()
+	return bwm.collections
+}
+
+// LoadConnectionsByCollectionId syncs and loads all SSH connections for the selected collection
+func (bwm *BitwardenManager) LoadConnectionsByCollectionId(collectionId string) error {
+	bwm.vaultMutex.Lock()
+	defer bwm.vaultMutex.Unlock()
+	if err := bwm.Sync(); err != nil {
+		return err
+	}
+	session, err := bwm.SessionKey()
+	if err != nil {
+		return err
+	}
+
+	if collectionId == "" {
+		collectionId = "null"
+	}
+
+	cmd := exec.Command("bw", "list", "items", "--collectionid", collectionId, "--session", session)
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("bw list items failed: %s", stderr.String())
+	}
+
+	var allItems []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &allItems); err != nil {
+		return fmt.Errorf("failed to parse bw list items JSON: %w", err)
+	}
+
+	bwm.items = make(map[string]SSHConnection)
+	for _, item := range allItems {
+		if t, ok := item["type"].(float64); !ok || int(t) != 1 {
+			continue
+		}
+		conn := SSHConnection{}
+		if id, ok := item["id"].(string); ok {
+			conn.ID = id
+		}
+		if name, ok := item["name"].(string); ok {
+			conn.Name = name
+		}
+		login, ok := item["login"].(map[string]any)
+		if ok {
+			if username, ok := login["username"].(string); ok {
+				conn.Username = username
+			}
+			if password, ok := login["password"].(string); ok {
+				conn.Password = password
+			}
+			if uris, ok := login["uris"].([]any); ok && len(uris) > 0 {
+				if first, ok := uris[0].(map[string]any); ok {
+					if uri, ok := first["uri"].(string); ok {
+						rest := strings.TrimPrefix(uri, "ssh://")
+						hostport := strings.Split(rest, ":")
+						conn.Host = hostport[0]
+						if len(hostport) > 1 {
+							if port, err := strconv.Atoi(hostport[1]); err == nil {
+								conn.Port = port
+							}
+						} else {
+							conn.Port = 22
+						}
+					}
+				}
+			}
+		}
+		if fields, ok := item["fields"].([]any); ok {
+			for _, f := range fields {
+				if field, ok := f.(map[string]any); ok {
+					name, _ := field["name"].(string)
+					value, _ := field["value"].(string)
+					if strings.ToLower(name) == "use_password" {
+						conn.UsePassword = value == "true"
+					}
+				}
+			}
+		}
+		if notes, ok := item["notes"].(string); ok && notes != "" {
+			conn.PublicKey = notes
+		}
+		// Optional: Set collectionIds and organizationId for completeness
+		if collectionIds, ok := item["collectionIds"].([]any); ok {
+			conn.CollectionIds = []string{}
+			for _, cid := range collectionIds {
+				if cidStr, ok := cid.(string); ok {
+					conn.CollectionIds = append(conn.CollectionIds, cidStr)
+				}
+			}
+		}
+		if orgId, ok := item["organizationId"].(string); ok {
+			conn.OrganizationID = orgId
+		}
+		bwm.items[conn.ID] = conn
+	}
+	return nil
+}
+
+// ListConnections returns the currently loaded SSH connections (filtered by last LoadConnectionsByCollectionId)
+func (bwm *BitwardenManager) ListConnections() []SSHConnection {
+	bwm.vaultMutex.Lock()
+	defer bwm.vaultMutex.Unlock()
+	conns := make([]SSHConnection, 0, len(bwm.items))
+	for _, c := range bwm.items {
+		conns = append(conns, c)
+	}
+	return conns
 }
