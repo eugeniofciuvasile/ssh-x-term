@@ -56,6 +56,9 @@ ssh-x-term/
 - Bitwarden integration is handled via several UI components:  
   - `bitwarden_config.go`, `bitwarden_login_form.go`, `bitwarden_unlock_form.go` for configuration, login, and unlock flows.  
   - `storage_select.go` lets users choose Bitwarden or other credential storage.
+ 
+**Flow chart**
+- [FLOW](https://github.com/eugeniofciuvasile/ssh-x-term/blob/main/FLOW.md)
 
 ## Prerequisites
 
