@@ -541,7 +541,6 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 	}
 	return cmd
 }
-
 // Helper to reset connection state
 func (m *Model) resetConnectionState() {
 	if m.connectionList != nil {
@@ -552,6 +551,8 @@ func (m *Model) resetConnectionState() {
 	}
 	if m.bitwardenCollectionList == nil {
 		m.state = StateSelectStorage
+		// Create a new storage select when returning to this state
+		m.storageSelect = components.NewStorageSelect()
 	} else {
 		m.state = StateCollectionSelect
 	}
@@ -574,4 +575,6 @@ func (m *Model) resetOrganizationState() {
 		m.bitwardenOrganizationList.Reset()
 	}
 	m.state = StateSelectStorage
+	// Create a new storage select when returning to this state
+	m.storageSelect = components.NewStorageSelect()
 }
