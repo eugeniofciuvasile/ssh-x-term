@@ -563,9 +563,11 @@ func (m *Model) resetConnectionState() {
 			m.bitwardenCollectionList.Reset()
 		}
 		if m.bitwardenCollectionList == nil {
-			m.state = StateSelectStorage
-			// Create a new storage select when returning to this state
-			m.storageSelect = components.NewStorageSelect()
+			if m.bitwardenOrganizationList != nil {
+				m.bitwardenOrganizationList.Reset()
+			}
+			m.bitwardenManager.SetPersonalVault(false)
+			m.state = StateOrganizationSelect
 		} else {
 			m.state = StateCollectionSelect
 		}
