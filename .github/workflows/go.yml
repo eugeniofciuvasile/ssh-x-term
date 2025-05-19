@@ -59,14 +59,14 @@ jobs:
       run: |
         mkdir -p dist
         # Linux
-        GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/ssh-x-term
+        GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/sxt
         # Windows
-        GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/ssh-x-term
+        GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/sxt
         # macOS
-        GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/ssh-x-term
+        GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/sxt
         # Add ARM64 builds for broader compatibility
-        GOOS=linux GOARCH=arm64 go build -o dist/ssh-x-term-linux-arm64 ./cmd/ssh-x-term
-        GOOS=darwin GOARCH=arm64 go build -o dist/ssh-x-term-darwin-arm64 ./cmd/ssh-x-term
+        GOOS=linux GOARCH=arm64 go build -o dist/ssh-x-term-linux-arm64 ./cmd/sxt
+        GOOS=darwin GOARCH=arm64 go build -o dist/ssh-x-term-darwin-arm64 ./cmd/sxt
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
