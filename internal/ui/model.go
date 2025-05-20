@@ -569,7 +569,15 @@ func (m *Model) resetConnectionState() {
 			m.bitwardenManager.SetPersonalVault(false)
 			m.state = StateOrganizationSelect
 		} else {
-			m.state = StateCollectionSelect
+			if m.bitwardenManager.IsPersonalVault() {
+				if m.bitwardenOrganizationList != nil {
+					m.bitwardenOrganizationList.Reset()
+				}
+				m.bitwardenManager.SetPersonalVault(false)
+				m.state = StateOrganizationSelect
+			} else {
+				m.state = StateCollectionSelect
+			}
 		}
 	}
 }
