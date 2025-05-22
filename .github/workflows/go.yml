@@ -59,6 +59,15 @@ jobs:
         git push origin ${{ steps.get_tag.outputs.new_tag }}
         echo "new_tag=${{ steps.get_tag.outputs.new_tag }}" >> $GITHUB_OUTPUT
 
+    - name: Bump npm version in package.json and commit
+      run: |
+        VERSION="${{ steps.get_tag.outputs.new_tag }}"
+        VERSION=${VERSION#v}
+        npm version $VERSION --no-git-tag-version
+        git add package.json package-lock.json || true
+        git commit -m "chore: bump npm package version to $VERSION [skip ci]" || echo "No changes to commit"
+        git push origin main
+
     - name: Build Go binaries for multiple platforms
       run: |
         mkdir -p dist
@@ -104,15 +113,6 @@ jobs:
       
       - name: Install dependencies
         run: npm ci || npm install
-      
-      - name: Update version
-        run: |
-          # Get version from the tag (remove 'v' prefix)
-          VERSION="${{ needs.release.outputs.new_tag }}"
-          VERSION=${VERSION#v}  # Remove 'v' prefix
-          
-          echo "Setting npm package version to $VERSION"
-          npm version $VERSION --no-git-tag-version --allow-same-version
       
       - name: Publish to npm
         run: npm publish
