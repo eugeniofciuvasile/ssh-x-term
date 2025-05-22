@@ -73,25 +73,73 @@ ssh-x-term/
 
 ## Installation
 
+### Option 1: Install using npm (Recommended)
+
+The easiest way to install SSH-X-Term is using npm:
+
 ```sh
+# Install globally
+npm install -g ssh-x-term
+
+# Run the command
+sxt
+```
+
+This will automatically download the appropriate binary for your platform and set up the command.
+
+The npm installer also attempts to install required dependencies (`bw`, `sshpass`, `tmux`) if they are not already available in your system's `$PATH`.
+
+---
+
+### Option 2: Build from source
+
+Ensure you have **Go 1.21+** installed. You can use either the Go from your package manager or [install manually](https://go.dev/dl/).  
+If you manually install Go, add the following to your shell config (`~/.bashrc`, `~/.zshrc`, etc.):
+
+```sh
+export GOROOT=/usr/local/go
+export GOPATH=$HOME/go
+export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
+```
+
+Then:
+
+```sh
+# Clone and build the project
 git clone https://github.com/eugeniofciuvasile/ssh-x-term.git
 cd ssh-x-term
 go build -o sxt ./cmd/sxt
 ```
-Or install globally:
+
+Or install globally with Go:
+
 ```sh
-go install ./cmd/sxt
+go install github.com/eugeniofciuvasile/ssh-x-term/cmd/sxt@latest
 ```
-Or download the executable, .zip from the release.
+
+Make sure `$GOPATH/bin` is in your `$PATH` to use `sxt` from anywhere.
+
+---
+
+### Option 3: Download pre-built binary
+
+You can download the pre-built binary for your platform from the [Releases](https://github.com/eugeniofciuvasile/ssh-x-term/releases) page.
+
+After downloading:
+
+```sh
+chmod +x sxt
+mv sxt /usr/local/bin/   # or any location in your PATH
+```
 
 ## Usage
-
-1. **Run the app:**
-    ```sh
-    ./sxt
-    # or, if installed globally:
-    sxt
-    ```
+1. Run the app:
+```sh
+./sxt
+# or, if installed globally:
+sxt
+```
+    
 2. **Manage SSH connections:**
     - Press `a` to add, `e` to edit, `d` to delete a connection.
     - Press `o` to toggle opening connections in a new tmux window.
