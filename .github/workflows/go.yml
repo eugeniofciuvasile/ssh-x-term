@@ -51,14 +51,6 @@ jobs:
         git config user.name github-actions
         git config user.email github-actions@github.com
 
-    - name: Create and push new tag
-      id: tag_step  # Add ID to reference in outputs
-      run: |
-        echo "Creating and pushing tag: ${{ steps.get_tag.outputs.new_tag }}"
-        git tag ${{ steps.get_tag.outputs.new_tag }}
-        git push origin ${{ steps.get_tag.outputs.new_tag }}
-        echo "new_tag=${{ steps.get_tag.outputs.new_tag }}" >> $GITHUB_OUTPUT
-
     - name: Bump npm version in package.json and commit
       run: |
         VERSION="${{ steps.get_tag.outputs.new_tag }}"
@@ -67,6 +59,14 @@ jobs:
         git add package.json
         git commit -m "chore: bump npm package version to $VERSION [skip ci]" || echo "No changes to commit"
         git push origin main
+
+    - name: Create and push new tag
+      id: tag_step  # Add ID to reference in outputs
+      run: |
+        echo "Creating and pushing tag: ${{ steps.get_tag.outputs.new_tag }}"
+        git tag ${{ steps.get_tag.outputs.new_tag }}
+        git push origin ${{ steps.get_tag.outputs.new_tag }}
+        echo "new_tag=${{ steps.get_tag.outputs.new_tag }}" >> $GITHUB_OUTPUT
 
     - name: Build Go binaries for multiple platforms
       run: |
