@@ -132,6 +132,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.bitwardenUnlockForm = nil
 		return m, tea.Batch(cmds...)
 
+	case components.ToggleOpenInNewTerminalMsg:
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
