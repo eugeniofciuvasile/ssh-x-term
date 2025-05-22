@@ -1,4 +1,4 @@
-name: Go Release
+name: Go Release and npm Publish
 on:
   push:
     branches: [ "main" ]
@@ -7,6 +7,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.tag_step.outputs.new_tag }}  # Output the tag for use in the npm job
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -50,10 +52,12 @@ jobs:
         git config user.email github-actions@github.com
 
     - name: Create and push new tag
+      id: tag_step  # Add ID to reference in outputs
       run: |
         echo "Creating and pushing tag: ${{ steps.get_tag.outputs.new_tag }}"
         git tag ${{ steps.get_tag.outputs.new_tag }}
         git push origin ${{ steps.get_tag.outputs.new_tag }}
+        echo "new_tag=${{ steps.get_tag.outputs.new_tag }}" >> $GITHUB_OUTPUT
 
     - name: Build Go binaries for multiple platforms
       run: |
@@ -82,3 +86,35 @@ jobs:
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-npm:
+    needs: release  # This job runs after the release job
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.new_tag }}  # Checkout the new tag
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          registry-url: 'https://registry.npmjs.org/'
+      
+      - name: Install dependencies
+        run: npm ci || npm install
+      
+      - name: Update version
+        run: |
+          # Get version from the tag (remove 'v' prefix)
+          VERSION="${{ needs.release.outputs.new_tag }}"
+          VERSION=${VERSION#v}  # Remove 'v' prefix
+          
+          echo "Setting npm package version to $VERSION"
+          npm version $VERSION --no-git-tag-version --allow-same-version
+      
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
