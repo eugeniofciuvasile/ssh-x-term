@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"ssh-x-term/internal/config"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -17,6 +18,8 @@ var (
 	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
 	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
 )
+
+type ToggleOpenInNewTerminalMsg struct{}
 
 type connectionItem struct {
 	connection config.SSHConnection
@@ -81,20 +84,32 @@ func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 	}
 }
 
+func sendRefresh() tea.Cmd {
+	return tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
+		return ToggleOpenInNewTerminalMsg{}
+	})
+}
+
 func (cl *ConnectionList) Init() tea.Cmd { return nil }
 
 func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
+	case ToggleOpenInNewTerminalMsg:
+		return cl, nil
+
 	case tea.WindowSizeMsg:
 		cl.SetSize(msg.Width, msg.Height)
 		return cl, nil
+
 	case tea.KeyMsg:
 		if cl.list.FilterState() == list.Filtering {
 			newList, cmd := cl.list.Update(msg)
 			cl.list = newList
 			return cl, cmd
 		}
+
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			if selectedItem := cl.list.SelectedItem(); selectedItem != nil {
@@ -105,13 +120,17 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case msg.String() == "o":
 			cl.openInNewTerminal = !cl.openInNewTerminal
+
 			checkboxStr := "[ ]"
 			if cl.openInNewTerminal {
 				checkboxStr = "[x]"
 			}
 			cl.list.Title = fmt.Sprintf("SSH Connections - Toggle open in new terminal %s", checkboxStr)
+
+			return cl, sendRefresh()
 		}
 	}
+
 	newList, cmd := cl.list.Update(msg)
 	cl.list = newList
 	if item := cl.list.SelectedItem(); item != nil {
@@ -141,6 +160,11 @@ func (cl *ConnectionList) OpenInNewTerminal() bool { return cl.openInNewTerminal
 
 func (cl *ConnectionList) ToggleOpenInNewTerminal() {
 	cl.openInNewTerminal = !cl.openInNewTerminal
+	checkboxStr := "[ ]"
+	if cl.openInNewTerminal {
+		checkboxStr = "[x]"
+	}
+	cl.list.Title = fmt.Sprintf("SSH Connections - Toggle open in new terminal %s", checkboxStr)
 }
 
 func (cl *ConnectionList) SetConnections(connections []config.SSHConnection) {
