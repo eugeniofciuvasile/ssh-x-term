@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"ssh-x-term/internal/config"
-	"ssh-x-term/internal/ssh"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/ssh"
 )
 
 var (

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/pkg/sshutil"
 	"golang.org/x/crypto/ssh"
-	"ssh-x-term/internal/config"
-	"ssh-x-term/pkg/sshutil"
 )
 
 // Client represents an SSH client connection

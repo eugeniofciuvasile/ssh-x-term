@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
-	"ssh-x-term/internal/config"
 )
 
 // Session represents an SSH terminal session
