@@ -6,8 +6,8 @@ import (
 	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"ssh-x-term/internal/config"
-	"ssh-x-term/internal/ui"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui"
 )
 
 func main() {

@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"ssh-x-term/internal/config"
-	"ssh-x-term/internal/ui/components"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"

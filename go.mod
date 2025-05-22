@@ -1,4 +1,4 @@
-module ssh-x-term
+module github.com/eugeniofciuvasile/ssh-x-term
 
 go 1.24.2
 

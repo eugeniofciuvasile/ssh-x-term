@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"ssh-x-term/internal/ui/components"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"

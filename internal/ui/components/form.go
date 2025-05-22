@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"

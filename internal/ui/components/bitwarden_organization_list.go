@@ -2,7 +2,7 @@ package components
 
 import (
 	"fmt"
-	"ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
