@@ -64,7 +64,7 @@ jobs:
         VERSION="${{ steps.get_tag.outputs.new_tag }}"
         VERSION=${VERSION#v}
         npm version $VERSION --no-git-tag-version
-        git add package.json package-lock.json || true
+        git add package.json
         git commit -m "chore: bump npm package version to $VERSION [skip ci]" || echo "No changes to commit"
         git push origin main
 
