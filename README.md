@@ -71,6 +71,35 @@ ssh-x-term/
 
 **Ensure all required binaries are available in your `$PATH`.**
 
+## System dependencies
+
+ssh-x-term requires the following system tools to be installed:
+
+- `tmux`
+- `sshpass`
+- `bitwarden-cli` (npm package: `@bitwarden/cli`, install globally: `npm install -g @bitwarden/cli`)
+
+### Linux (Debian/Ubuntu):
+
+```sh
+sudo apt update
+sudo apt install -y tmux sshpass
+npm install -g @bitwarden/cli
+```
+
+### macOS (with Homebrew):
+
+```sh
+brew install tmux
+# See https://gist.github.com/arunoda/7790979 for sshpass on macOS
+npm install -g @bitwarden/cli
+```
+
+### Windows:
+
+- Install `tmux` and `sshpass` via WSL/Cygwin or use alternatives.
+- Install Bitwarden CLI with: `npm install -g @bitwarden/cli`
+
 ## Installation
 
 ### Option 1: Install using npm (Recommended)
