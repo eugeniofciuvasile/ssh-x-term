@@ -408,18 +408,18 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			if !isWindows {
 				if openInNewWindow {
 					var sshCommand string
-					useSshpass := false
+					usedPassh := false
 
 					if conn.UsePassword && conn.Password != "" {
-						if _, err := exec.LookPath("sshpass"); err == nil {
-							useSshpass = true
+						if _, err := exec.LookPath("passh"); err == nil {
+							usedPassh = true
 							sshCommand = fmt.Sprintf(
-								"sshpass -p %q ssh %s",
+								"passh -p %q ssh %s",
 								conn.Password,
 								strings.Join(sshArgs, " "),
 							)
 						} else {
-							tea.Println("sshpass not found, falling back to manual password entry or key-based login.")
+							tea.Println("passh not found, falling back to manual password entry or key-based login.")
 							sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
 						}
 					} else {
@@ -432,8 +432,8 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Error launching tmux window: %v\n", err)
 					}
-					if conn.UsePassword && conn.Password != "" && !useSshpass {
-						tea.Println("Password authentication not supported in this mode. Use manual entry or key-based login.")
+					if conn.UsePassword && conn.Password != "" && !usedPassh {
+						tea.Println("Password authentication not supported in this mode. Use manual entry or key-based login, or install passh.")
 					}
 					m.state = StateConnectionList
 					m.connectionList.Reset()
