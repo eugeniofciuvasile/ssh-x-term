@@ -1,5 +1,18 @@
 # SSH-X-Term
 
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./logo.svg" width="240">
+    <source media="(prefers-color-scheme: light)" srcset="./logo.svg" width="240">
+    <img alt="SSH-X-Term Logo" src="./logo.svg" width="240">
+  </picture>
+  <br>
+  <a href="https://github.com/eugeniofciuvasile/ssh-x-term/releases"><img src="https://img.shields.io/github/v/release/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="Latest Release"></a>
+  <a href="https://github.com/eugeniofciuvasile/ssh-x-term/actions"><img src="https://github.com/eugeniofciuvasile/ssh-x-term/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
+  <a href="https://github.com/eugeniofciuvasile/ssh-x-term/stargazers"><img src="https://img.shields.io/github/stars/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="GitHub Stars"></a>
+  <a href="https://github.com/eugeniofciuvasile/ssh-x-term/blob/main/LICENSE"><img src="https://img.shields.io/github/license/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="License"></a>
+</p>
+
 SSH-X-Term is a powerful terminal-based SSH client with a TUI (Text User Interface) built on [Bubble Tea](https://github.com/charmbracelet/bubbletea).  
 It lets you manage SSH connections, securely store credentials using Bitwarden, and connect to remote servers with both password and key-based authentication.  
 Cross-platform features include support for passh (Unix), plink.exe (Windows), and full tmux integration.
@@ -123,7 +136,7 @@ The npm installer also attempts to install required dependencies (`bw`, `passh`,
 
 ### Option 2: Build from source
 
-Ensure you have **Go 1.21+** installed. You can use either the Go from your package manager or [install manually](https://go.dev/dl/).  
+Ensure you have **Go 1.24+** installed. You can use either the Go from your package manager or [install manually](https://go.dev/dl/).  
 If you manually install Go, add the following to your shell config (`~/.bashrc`, `~/.zshrc`, etc.):
 
 ```sh
