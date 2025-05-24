@@ -6,6 +6,7 @@ package sshutil
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"sync"
 
@@ -26,6 +27,7 @@ func NewTerminalSession(stdin io.Writer, stdout, stderr io.Reader) (*TerminalSes
 	fd := int(os.Stdin.Fd())
 	origTerm, err := term.GetState(fd)
 	if err != nil {
+		log.Printf("Failed to get terminal state: %v", err)
 		return nil, fmt.Errorf("failed to get terminal state: %w", err)
 	}
 	return &TerminalSession{
@@ -42,13 +44,12 @@ func NewTerminalSession(stdin io.Writer, stdout, stderr io.Reader) (*TerminalSes
 func (ts *TerminalSession) Start() error {
 	// Set terminal to raw mode
 	if _, err := term.MakeRaw(ts.fd); err != nil {
+		log.Printf("Failed to set terminal to raw mode: %v", err)
 		return fmt.Errorf("failed to set terminal to raw mode: %w", err)
 	}
 
-	// Create a channel to signal when to exit and restore terminal
 	doneCh := make(chan struct{})
 
-	// Create a mutex to prevent terminal state from being restored multiple times
 	var restoreMutex sync.Mutex
 	var alreadyRestored bool
 
@@ -61,40 +62,35 @@ func (ts *TerminalSession) Start() error {
 		}
 	}
 
-	// Create error channel for propagating errors
 	errCh := make(chan error, 3)
 
-	// Handle stdin
 	go func() {
 		_, err := io.Copy(ts.stdin, os.Stdin)
 		if err != nil && err != io.EOF {
+			log.Printf("stdin copy error: %v", err)
 			errCh <- err
 		}
-		// Signal completion
 		close(doneCh)
 	}()
 
-	// Handle stdout
 	go func() {
 		_, err := io.Copy(os.Stdout, ts.stdout)
 		if err != nil && err != io.EOF {
+			log.Printf("stdout copy error: %v", err)
 			errCh <- err
 		}
-		// When stdout ends (SSH connection terminates), restore terminal
 		safeRestore()
-		// Signal completion
 		close(doneCh)
 	}()
 
-	// Handle stderr
 	go func() {
 		_, err := io.Copy(os.Stderr, ts.stderr)
 		if err != nil && err != io.EOF {
+			log.Printf("stderr copy error: %v", err)
 			errCh <- err
 		}
 	}()
 
-	// Wait for either an error or completion signal
 	select {
 	case err := <-errCh:
 		safeRestore()

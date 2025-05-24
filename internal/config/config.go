@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,12 +23,14 @@ var IsTmuxAvailable bool = false
 func NewConfigManager() (*ConfigManager, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+		log.Printf("Failed to get user home directory: %v", err)
+		return nil, err
 	}
 
 	configDir := filepath.Join(homeDir, ".config", "ssh-x-term")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create config directory: %w", err)
+		log.Printf("Failed to create config directory: %v", err)
+		return nil, err
 	}
 
 	configPath := filepath.Join(configDir, defaultConfigFileName)
@@ -46,10 +48,12 @@ func (cm *ConfigManager) Load() error {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("failed to read config file: %w", err)
+		log.Printf("Failed to read config file: %v", err)
+		return err
 	}
 	if err := json.Unmarshal(data, &cm.Config); err != nil {
-		return fmt.Errorf("failed to parse config file: %w", err)
+		log.Printf("Failed to parse config file: %v", err)
+		return err
 	}
 	return nil
 }
@@ -57,10 +61,12 @@ func (cm *ConfigManager) Load() error {
 func (cm *ConfigManager) Save() error {
 	data, err := json.MarshalIndent(cm.Config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		log.Printf("Failed to marshal config: %v", err)
+		return err
 	}
 	if err := os.WriteFile(cm.ConfigPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+		log.Printf("Failed to write config file: %v", err)
+		return err
 	}
 	return nil
 }
@@ -72,7 +78,8 @@ func (cm *ConfigManager) EditConnection(conn SSHConnection) error {
 			return cm.Save()
 		}
 	}
-	return fmt.Errorf("connection with ID %s not found", conn.ID)
+	log.Printf("Connection with ID %s not found for edit", conn.ID)
+	return errors.New("connection with ID " + conn.ID + " not found")
 }
 
 func (cm *ConfigManager) AddConnection(conn SSHConnection) error {
@@ -93,7 +100,8 @@ func (cm *ConfigManager) DeleteConnection(id string) error {
 			return cm.Save()
 		}
 	}
-	return fmt.Errorf("connection with ID %s not found", id)
+	log.Printf("Connection with ID %s not found for deletion", id)
+	return errors.New("connection with ID " + id + " not found")
 }
 
 func (cm *ConfigManager) GetConnection(id string) (SSHConnection, bool) {
