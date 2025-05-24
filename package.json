@@ -33,7 +33,8 @@
   "homepage": "https://github.com/eugeniofciuvasile/ssh-x-term#readme",
   "os": [
     "linux",
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "engines": {
     "node": ">=14.0.0"
