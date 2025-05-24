@@ -5,7 +5,7 @@ const { spawnSync } = require('child_process');
 
 const deps = [
     { name: 'tmux', check: 'tmux' },
-    { name: 'sshpass', check: 'sshpass' },
+    { name: 'passh', check: 'passh' },
     { name: 'bw (bitwarden-cli)', check: 'bw' }
 ];
 
