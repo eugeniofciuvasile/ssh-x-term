@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -41,6 +41,7 @@ func NewBitwardenManager(cfg *BitwardenConfig) (*BitwardenManager, error) {
 func checkBwCLI() error {
 	_, err := exec.LookPath("bw")
 	if err != nil {
+		log.Print("Bitwarden CLI (`bw`) is not installed or not in your PATH. Please install it: https://bitwarden.com/help/cli/")
 		return errors.New("Bitwarden CLI (`bw`) is not installed or not in your PATH. Please install it: https://bitwarden.com/help/cli/")
 	}
 	return nil
@@ -48,16 +49,17 @@ func checkBwCLI() error {
 
 func (bwm *BitwardenManager) Login(password, otp string) error {
 	if err := checkBwCLI(); err != nil {
+		log.Print("Bitwarden CLI check failed during login")
 		return err
 	}
-	// Set server config if custom URL is provided
 	if bwm.cfg.ServerURL != "" {
 		cmd := exec.Command("bw", "config", "server", bwm.cfg.ServerURL)
 		var out, stderr bytes.Buffer
 		cmd.Stdout = &out
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("Bitwarden config server failed: %s", stderr.String())
+			log.Printf("Bitwarden config server failed: %s", stderr.String())
+			return errors.New("Bitwarden config server failed: " + stderr.String())
 		}
 	}
 
@@ -71,7 +73,8 @@ func (bwm *BitwardenManager) Login(password, otp string) error {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("Bitwarden login failed: %s", stderr.String())
+		log.Printf("Bitwarden login failed: %s", stderr.String())
+		return errors.New("Bitwarden login failed: " + stderr.String())
 	}
 	bwm.session = strings.TrimSpace(out.String())
 	bwm.authed = true
@@ -80,6 +83,7 @@ func (bwm *BitwardenManager) Login(password, otp string) error {
 
 func (bwm *BitwardenManager) Unlock(password string) error {
 	if err := checkBwCLI(); err != nil {
+		log.Print("Bitwarden CLI check failed during unlock")
 		return err
 	}
 	cmd := exec.Command("bw", "unlock", password, "--raw")
@@ -88,7 +92,8 @@ func (bwm *BitwardenManager) Unlock(password string) error {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("Bitwarden unlock failed: %s", stderr.String())
+		log.Printf("Bitwarden unlock failed: %s", stderr.String())
+		return errors.New("Bitwarden unlock failed: " + stderr.String())
 	}
 	bwm.session = strings.TrimSpace(out.String())
 	bwm.authed = true
@@ -97,7 +102,8 @@ func (bwm *BitwardenManager) Unlock(password string) error {
 
 func (bwm *BitwardenManager) SessionKey() (string, error) {
 	if !bwm.authed || bwm.session == "" {
-		return "", fmt.Errorf("Bitwarden session is not authenticated")
+		log.Print("Tried to fetch Bitwarden session key, but not authenticated")
+		return "", errors.New("Bitwarden session is not authenticated")
 	}
 	return bwm.session, nil
 }
@@ -120,13 +126,13 @@ func (bwm *BitwardenManager) SetSelectedCollection(collection *Collection) {
 
 // ---- Storage Interface Implementation ----
 
-// Load fetches all SSH connections from Bitwarden
 func (bwm *BitwardenManager) Load() error {
 	bwm.vaultMutex.Lock()
 	defer bwm.vaultMutex.Unlock()
 
 	session, err := bwm.SessionKey()
 	if err != nil {
+		log.Print("Could not get Bitwarden session key during Load")
 		return err
 	}
 
@@ -136,12 +142,14 @@ func (bwm *BitwardenManager) Load() error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("bw list items failed: %s", stderr.String())
+		log.Printf("bw list items failed: %s", stderr.String())
+		return errors.New("bw list items failed: " + stderr.String())
 	}
 
 	var allItems []map[string]any
 	if err := json.Unmarshal(out.Bytes(), &allItems); err != nil {
-		return fmt.Errorf("failed to parse bw list items JSON: %w", err)
+		log.Printf("Failed to parse bw list items JSON: %v", err)
+		return err
 	}
 
 	bwm.items = make(map[string]SSHConnection)
@@ -209,6 +217,7 @@ func (bwm *BitwardenManager) Save() error {
 func (bwm *BitwardenManager) DeleteConnection(id string) error {
 	session, err := bwm.SessionKey()
 	if err != nil {
+		log.Print("Could not get Bitwarden session key during DeleteConnection")
 		return err
 	}
 	cmd := exec.Command("bw", "delete", "item", id, "--session", session, "--permanent")
@@ -216,7 +225,8 @@ func (bwm *BitwardenManager) DeleteConnection(id string) error {
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("could not delete Bitwarden item: %s", stderr.String())
+		log.Printf("Could not delete Bitwarden item: %s", stderr.String())
+		return errors.New("could not delete Bitwarden item: " + stderr.String())
 	}
 	return bwm.Load()
 }
@@ -235,6 +245,7 @@ func (bwm *BitwardenManager) AddConnection(conn SSHConnection) error {
 func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHConnection, organizationID, collectionID string) error {
 	session, err := bwm.SessionKey()
 	if err != nil {
+		log.Print("Could not get Bitwarden session key during AddConnectionInCollectionAndOrganization")
 		return err
 	}
 
@@ -250,7 +261,8 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 				if os.IsPermission(err) {
 					tip = " (permission denied: check file permissions, you may need to run as the user who owns the file or change ownership)"
 				}
-				return fmt.Errorf("could not read private key file '%s': %v%s", conn.KeyFile, err, tip)
+				log.Printf("Could not read private key file '%s': %v%s", conn.KeyFile, err, tip)
+				return errors.New("could not read private key file '" + conn.KeyFile + "': " + err.Error() + tip)
 			}
 			privateKey = string(keyData)
 		}
@@ -263,7 +275,8 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 					if os.IsPermission(err) {
 						tip = " (permission denied: check file permissions, you may need to run as the user who owns the file or change ownership)"
 					}
-					return fmt.Errorf("could not read public key file '%s': %v%s", pubPath, err, tip)
+					log.Printf("Could not read public key file '%s': %v%s", pubPath, err, tip)
+					return errors.New("could not read public key file '" + pubPath + "': " + err.Error() + tip)
 				}
 			} else {
 				publicKey = string(pubData)
@@ -284,7 +297,7 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 		"password": privateKey,
 		"uris": []map[string]any{
 			{
-				"uri": fmt.Sprintf("ssh://%s:%d", conn.Host, conn.Port),
+				"uri": "ssh://" + conn.Host + ":" + strconv.Itoa(conn.Port),
 			},
 		},
 	}
@@ -310,9 +323,9 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 		}
 	}
 
-	// Marshal the item to JSON
 	itemJSON, err := json.Marshal(item)
 	if err != nil {
+		log.Printf("JSON marshaling failed for Bitwarden item: %v", err)
 		return err
 	}
 
@@ -322,7 +335,8 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 	encodeCmd.Stdout = &encodedOutput
 	encodeCmd.Stderr = &encodeErr
 	if err := encodeCmd.Run(); err != nil {
-		return fmt.Errorf("failed to encode Bitwarden item: %s - %s", err, encodeErr.String())
+		log.Printf("Failed to encode Bitwarden item: %s - %s", err, encodeErr.String())
+		return errors.New("failed to encode Bitwarden item: " + err.Error() + " - " + encodeErr.String())
 	}
 
 	createCmd := exec.Command("bw", "create", "item", "--session", session)
@@ -331,7 +345,8 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 	createCmd.Stdout = &createOut
 	createCmd.Stderr = &createErr
 	if err := createCmd.Run(); err != nil {
-		return fmt.Errorf("failed to create Bitwarden item: %s - %s", err, createErr.String())
+		log.Printf("Failed to create Bitwarden item: %s - %s", err, createErr.String())
+		return errors.New("failed to create Bitwarden item: " + err.Error() + " - " + createErr.String())
 	}
 	if bwm.IsPersonalVault() {
 		return bwm.Load()
@@ -343,10 +358,12 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 	session, err := bwm.SessionKey()
 	if err != nil {
+		log.Print("Could not get Bitwarden session key during EditConnection")
 		return err
 	}
 	if conn.ID == "" {
-		return fmt.Errorf("missing Bitwarden item ID for edit")
+		log.Print("Missing Bitwarden item ID for edit")
+		return errors.New("missing Bitwarden item ID for edit")
 	}
 
 	publicKey := conn.PublicKey
@@ -361,7 +378,8 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 				if os.IsPermission(err) {
 					tip = " (permission denied: check file permissions, you may need to run as the user who owns the file or change ownership)"
 				}
-				return fmt.Errorf("could not read private key file '%s': %v%s", conn.KeyFile, err, tip)
+				log.Printf("Could not read private key file '%s': %v%s", conn.KeyFile, err, tip)
+				return errors.New("could not read private key file '" + conn.KeyFile + "': " + err.Error() + tip)
 			}
 			privateKey = string(keyData)
 		}
@@ -374,7 +392,8 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 					if os.IsPermission(err) {
 						tip = " (permission denied: check file permissions, you may need to run as the user who owns the file or change ownership)"
 					}
-					return fmt.Errorf("could not read public key file '%s': %v%s", pubPath, err, tip)
+					log.Printf("Could not read public key file '%s': %v%s", pubPath, err, tip)
+					return errors.New("could not read public key file '" + pubPath + "': " + err.Error() + tip)
 				}
 			} else {
 				publicKey = string(pubData)
@@ -395,7 +414,7 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 		"password": privateKey,
 		"uris": []map[string]any{
 			{
-				"uri": fmt.Sprintf("ssh://%s:%d", conn.Host, conn.Port),
+				"uri": "ssh://" + conn.Host + ":" + strconv.Itoa(conn.Port),
 			},
 		},
 	}
@@ -410,6 +429,7 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 
 	itemJSON, err := json.Marshal(item)
 	if err != nil {
+		log.Printf("JSON marshaling failed for Bitwarden item: %v", err)
 		return err
 	}
 
@@ -420,8 +440,8 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 	encodeCmd.Stderr = &encodeErr
 
 	if err := encodeCmd.Run(); err != nil {
-		errMsg := fmt.Sprintf("failed to encode Bitwarden item: %s - %s", err, encodeErr.String())
-		return fmt.Errorf(errMsg)
+		log.Printf("Failed to encode Bitwarden item: %s - %s", err, encodeErr.String())
+		return errors.New("failed to encode Bitwarden item: " + err.Error() + " - " + encodeErr.String())
 	}
 
 	editCmd := exec.Command("bw", "edit", "item", conn.ID, "--session", session)
@@ -431,8 +451,8 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 	editCmd.Stderr = &editErr
 
 	if err := editCmd.Run(); err != nil {
-		errMsg := fmt.Sprintf("could not edit Bitwarden item: %s - %s", err, editErr.String())
-		return fmt.Errorf(errMsg)
+		log.Printf("Could not edit Bitwarden item: %s - %s", err, editErr.String())
+		return errors.New("could not edit Bitwarden item: " + err.Error() + " - " + editErr.String())
 	}
 
 	if bwm.IsPersonalVault() {
@@ -448,6 +468,7 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 
 func (bwm *BitwardenManager) Status() (loggedIn bool, unlocked bool, err error) {
 	if err := checkBwCLI(); err != nil {
+		log.Print("Bitwarden CLI check failed during Status")
 		return false, false, err
 	}
 	cmd := exec.Command("bw", "status")
@@ -455,13 +476,15 @@ func (bwm *BitwardenManager) Status() (loggedIn bool, unlocked bool, err error) 
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return false, false, fmt.Errorf("bw status failed: %s", stderr.String())
+		log.Printf("bw status failed: %s", stderr.String())
+		return false, false, errors.New("bw status failed: " + stderr.String())
 	}
 	type bwStatus struct {
 		Status string `json:"status"`
 	}
 	var stat bwStatus
 	if err := json.Unmarshal(out.Bytes(), &stat); err != nil {
+		log.Printf("Failed to parse Bitwarden status JSON: %v", err)
 		return false, false, err
 	}
 	switch stat.Status {
@@ -472,12 +495,14 @@ func (bwm *BitwardenManager) Status() (loggedIn bool, unlocked bool, err error) 
 	case "unlocked":
 		return true, true, nil
 	}
-	return false, false, fmt.Errorf("unknown Bitwarden status: %s", stat.Status)
+	log.Printf("Unknown Bitwarden status: %s", stat.Status)
+	return false, false, errors.New("unknown Bitwarden status: " + stat.Status)
 }
 
 func (bwm *BitwardenManager) Sync() error {
 	session, err := bwm.SessionKey()
 	if err != nil {
+		log.Print("Could not get Bitwarden session key during Sync")
 		return err
 	}
 	cmd := exec.Command("bw", "sync", "--session", session)
@@ -485,12 +510,12 @@ func (bwm *BitwardenManager) Sync() error {
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("could not sync Bitwarden vault: %s", stderr.String())
+		log.Printf("Could not sync Bitwarden vault: %s", stderr.String())
+		return errors.New("could not sync Bitwarden vault: " + stderr.String())
 	}
 	return nil
 }
 
-// LoadOrganizations syncs and loads all organizations for the user
 func (bwm *BitwardenManager) LoadOrganizations() error {
 	bwm.vaultMutex.Lock()
 	defer bwm.vaultMutex.Unlock()
@@ -499,6 +524,7 @@ func (bwm *BitwardenManager) LoadOrganizations() error {
 	}
 	session, err := bwm.SessionKey()
 	if err != nil {
+		log.Print("Could not get Bitwarden session key during LoadOrganizations")
 		return err
 	}
 	cmd := exec.Command("bw", "list", "organizations", "--session", session)
@@ -506,11 +532,13 @@ func (bwm *BitwardenManager) LoadOrganizations() error {
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("could not list organizations: %s", stderr.String())
+		log.Printf("Could not list organizations: %s", stderr.String())
+		return errors.New("could not list organizations: " + stderr.String())
 	}
 	var orgs []Organization
 	if err := json.Unmarshal(out.Bytes(), &orgs); err != nil {
-		return fmt.Errorf("failed to parse organizations JSON: %w", err)
+		log.Printf("Failed to parse organizations JSON: %v", err)
+		return err
 	}
 	bwm.organizations = orgs
 	return nil
@@ -522,7 +550,6 @@ func (bwm *BitwardenManager) ListOrganizations() []Organization {
 	return bwm.organizations
 }
 
-// LoadCollectionsByOrganizationId syncs and loads all collections for the selected organization
 func (bwm *BitwardenManager) LoadCollectionsByOrganizationId(organizationId string) error {
 	bwm.vaultMutex.Lock()
 	defer bwm.vaultMutex.Unlock()
@@ -531,6 +558,7 @@ func (bwm *BitwardenManager) LoadCollectionsByOrganizationId(organizationId stri
 	}
 	session, err := bwm.SessionKey()
 	if err != nil {
+		log.Print("Could not get Bitwarden session key during LoadCollectionsByOrganizationId")
 		return err
 	}
 	cmd := exec.Command("bw", "list", "collections", "--organizationid", organizationId, "--session", session)
@@ -538,13 +566,14 @@ func (bwm *BitwardenManager) LoadCollectionsByOrganizationId(organizationId stri
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("could not list collections: %s", stderr.String())
+		log.Printf("Could not list collections: %s", stderr.String())
+		return errors.New("could not list collections: " + stderr.String())
 	}
 	var collections []Collection
 	if err := json.Unmarshal(out.Bytes(), &collections); err != nil {
-		return fmt.Errorf("failed to parse collections JSON: %w", err)
+		log.Printf("Failed to parse collections JSON: %v", err)
+		return err
 	}
-	// Only cache collections for the selected org
 	bwm.collections = collections
 	return nil
 }
@@ -555,7 +584,6 @@ func (bwm *BitwardenManager) ListCollections() []Collection {
 	return bwm.collections
 }
 
-// LoadConnectionsByCollectionId syncs and loads all SSH connections for the selected collection
 func (bwm *BitwardenManager) LoadConnectionsByCollectionId(collectionId string) error {
 	bwm.vaultMutex.Lock()
 	defer bwm.vaultMutex.Unlock()
@@ -564,6 +592,7 @@ func (bwm *BitwardenManager) LoadConnectionsByCollectionId(collectionId string) 
 	}
 	session, err := bwm.SessionKey()
 	if err != nil {
+		log.Print("Could not get Bitwarden session key during LoadConnectionsByCollectionId")
 		return err
 	}
 
@@ -577,12 +606,14 @@ func (bwm *BitwardenManager) LoadConnectionsByCollectionId(collectionId string) 
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("bw list items failed: %s", stderr.String())
+		log.Printf("bw list items failed: %s", stderr.String())
+		return errors.New("bw list items failed: " + stderr.String())
 	}
 
 	var allItems []map[string]any
 	if err := json.Unmarshal(out.Bytes(), &allItems); err != nil {
-		return fmt.Errorf("failed to parse bw list items JSON: %w", err)
+		log.Printf("Failed to parse bw list items JSON: %v", err)
+		return err
 	}
 
 	bwm.items = make(map[string]SSHConnection)
@@ -636,7 +667,6 @@ func (bwm *BitwardenManager) LoadConnectionsByCollectionId(collectionId string) 
 		if notes, ok := item["notes"].(string); ok && notes != "" {
 			conn.PublicKey = notes
 		}
-		// Optional: Set collectionIds and organizationId for completeness
 		if collectionIds, ok := item["collectionIds"].([]any); ok {
 			conn.CollectionIds = []string{}
 			for _, cid := range collectionIds {
@@ -653,7 +683,6 @@ func (bwm *BitwardenManager) LoadConnectionsByCollectionId(collectionId string) 
 	return nil
 }
 
-// ListConnections returns the currently loaded SSH connections (filtered by last LoadConnectionsByCollectionId)
 func (bwm *BitwardenManager) ListConnections() []SSHConnection {
 	bwm.vaultMutex.Lock()
 	defer bwm.vaultMutex.Unlock()
