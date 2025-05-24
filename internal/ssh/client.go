@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
@@ -19,6 +20,7 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 	// Set up auth method based on configuration
 	authMethod, err := sshutil.GetAuthMethod(connConfig.UsePassword, connConfig.Password, connConfig.KeyFile)
 	if err != nil {
+		log.Printf("Failed to get auth method: %v", err)
 		return nil, fmt.Errorf("failed to get auth method: %w", err)
 	}
 
@@ -36,6 +38,7 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 	addr := fmt.Sprintf("%s:%d", connConfig.Host, connConfig.Port)
 	conn, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
+		log.Printf("Failed to connect to SSH server %s: %v", addr, err)
 		return nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
 
@@ -53,6 +56,7 @@ func (c *Client) Close() error {
 // NewSession creates a new SSH session
 func (c *Client) NewSession() (*ssh.Session, error) {
 	if c.conn == nil {
+		log.Print("Attempted to create session on nil SSH connection")
 		return nil, fmt.Errorf("SSH client not connected")
 	}
 

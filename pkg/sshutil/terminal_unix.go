@@ -6,6 +6,7 @@ package sshutil
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -29,6 +30,7 @@ func NewTerminalSession(stdin io.Writer, stdout, stderr io.Reader) (*TerminalSes
 	// Save the original terminal state
 	origTerm, err := term.GetState(fd)
 	if err != nil {
+		log.Printf("Failed to get terminal state: %v", err)
 		return nil, fmt.Errorf("failed to get terminal state: %w", err)
 	}
 
@@ -44,6 +46,7 @@ func NewTerminalSession(stdin io.Writer, stdout, stderr io.Reader) (*TerminalSes
 // Start activates the terminal session, manages raw mode and I/O streaming.
 func (ts *TerminalSession) Start() error {
 	if _, err := term.MakeRaw(ts.fd); err != nil {
+		log.Printf("Failed to set terminal to raw mode: %v", err)
 		return fmt.Errorf("failed to set terminal to raw mode: %w", err)
 	}
 	defer term.Restore(ts.fd, ts.origTerm)
@@ -75,10 +78,13 @@ func (ts *TerminalSession) Start() error {
 	for {
 		select {
 		case err := <-errCh:
+			if err != nil && err != io.EOF {
+				log.Printf("Terminal session I/O error: %v", err)
+			}
 			return err
 		case <-resizeCh:
 			if err := ts.handleResize(); err != nil {
-				fmt.Fprintf(os.Stderr, "Resize error: %v\n", err)
+				log.Printf("Resize error: %v", err)
 			}
 		}
 	}
@@ -88,10 +94,11 @@ func (ts *TerminalSession) Start() error {
 func (ts *TerminalSession) handleResize() error {
 	width, height, err := term.GetSize(ts.fd)
 	if err != nil {
+		log.Printf("Failed to get terminal size during resize: %v", err)
 		return fmt.Errorf("failed to get terminal size: %w", err)
 	}
 	// Optional: handle resize logic (e.g., notify remote, etc.)
-	fmt.Fprintf(os.Stderr, "\nTerminal resized to %dx%d\n", width, height)
+	log.Printf("Terminal resized to %dx%d", width, height)
 	return nil
 }
 

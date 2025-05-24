@@ -6,6 +6,7 @@ package ssh
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"sync"
@@ -34,48 +35,44 @@ type Session struct {
 
 // NewSession creates a new SSH terminal session
 func NewSession(connConfig config.SSHConnection) (*Session, error) {
-	// Create a new SSH client
 	client, err := NewClient(connConfig)
 	if err != nil {
 		return nil, err
 	}
-
-	// Create a new SSH session
 	sshSession, err := client.NewSession()
 	if err != nil {
 		client.Close()
 		return nil, fmt.Errorf("failed to create SSH session: %w", err)
 	}
-
-	// Set up terminal modes
 	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,     // enable echoing
-		ssh.TTY_OP_ISPEED: 14400, // input speed = 14.4kbaud
-		ssh.TTY_OP_OSPEED: 14400, // output speed = 14.4kbaud
-		ssh.ICANON:        1,     // canonical input mode
-		ssh.ISIG:          1,     // signals enabled
+		ssh.ECHO:          1,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+		ssh.ICANON:        1,
+		ssh.ISIG:          1,
 	}
 
-	// Request pseudo terminal
 	fd := int(os.Stdin.Fd())
 	width, height, err := term.GetSize(fd)
 	if err != nil {
 		sshSession.Close()
 		client.Close()
+		log.Printf("Failed to get terminal size: %v", err)
 		return nil, fmt.Errorf("failed to get terminal size: %w", err)
 	}
 
 	if err := sshSession.RequestPty("xterm-256color", height, width, modes); err != nil {
 		sshSession.Close()
 		client.Close()
+		log.Printf("Failed to request PTY: %v", err)
 		return nil, fmt.Errorf("failed to request PTY: %w", err)
 	}
 
-	// Set up pipes for stdin, stdout, stderr
 	stdin, err := sshSession.StdinPipe()
 	if err != nil {
 		sshSession.Close()
 		client.Close()
+		log.Printf("Failed to set up stdin pipe: %v", err)
 		return nil, fmt.Errorf("failed to set up stdin pipe: %w", err)
 	}
 
@@ -83,6 +80,7 @@ func NewSession(connConfig config.SSHConnection) (*Session, error) {
 	if err != nil {
 		sshSession.Close()
 		client.Close()
+		log.Printf("Failed to set up stdout pipe: %v", err)
 		return nil, fmt.Errorf("failed to set up stdout pipe: %w", err)
 	}
 
@@ -90,6 +88,7 @@ func NewSession(connConfig config.SSHConnection) (*Session, error) {
 	if err != nil {
 		sshSession.Close()
 		client.Close()
+		log.Printf("Failed to set up stderr pipe: %v", err)
 		return nil, fmt.Errorf("failed to set up stderr pipe: %w", err)
 	}
 
@@ -123,7 +122,6 @@ func (s *Session) safeWrite(data []byte) (int, error) {
 		s.exitMutex.Lock()
 		s.exiting = true
 		s.exitMutex.Unlock()
-
 		// Don't report EOF as error during exit process
 		return n, nil
 	}
@@ -132,14 +130,13 @@ func (s *Session) safeWrite(data []byte) (int, error) {
 
 // Start starts the SSH session
 func (s *Session) Start() error {
-	// Store original terminal state
 	var err error
 	s.originalTty, err = term.MakeRaw(s.originalFd)
 	if err != nil {
+		log.Printf("Failed to set terminal to raw mode: %v", err)
 		return fmt.Errorf("failed to set terminal to raw mode: %w", err)
 	}
 
-	// Handle window resize
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	defer signal.Stop(winch)
@@ -155,22 +152,18 @@ func (s *Session) Start() error {
 		}
 	}()
 
-	// Trigger initial resize
 	s.resizeTerminal()
 
-	// Start shell
 	if err := s.session.Shell(); err != nil {
 		term.Restore(s.originalFd, s.originalTty)
+		log.Printf("Failed to start shell: %v", err)
 		return fmt.Errorf("failed to start shell: %w", err)
 	}
 
-	// Handle input and output with improved buffering
 	s.wg.Add(3)
 
-	// Handle stdin with improved buffering
 	go func() {
 		defer s.wg.Done()
-
 		buf := make([]byte, 1024)
 		for {
 			select {
@@ -180,46 +173,38 @@ func (s *Session) Start() error {
 				n, err := os.Stdin.Read(buf)
 				if err != nil {
 					if err != io.EOF {
-						// Only log if not EOF
-						fmt.Fprintf(os.Stderr, "stdin read error: %v\n", err)
+						log.Printf("stdin read error: %v", err)
 					}
 					return
 				}
 
 				if n > 0 {
-					// Check if we're in an exiting state before writing
 					s.exitMutex.Lock()
 					exiting := s.exiting
 					s.exitMutex.Unlock()
 
 					if exiting {
-						// If we're exiting, don't try to write any more data
 						continue
 					}
 
-					// Write in chunks to prevent blocking
 					written := 0
 					for written < n {
 						wn, err := s.safeWrite(buf[written:n])
 						if err != nil {
-							// Only log if it's not an EOF during exit
 							s.exitMutex.Lock()
 							exiting := s.exiting
 							s.exitMutex.Unlock()
-
 							if !exiting {
-								fmt.Fprintf(os.Stderr, "stdin write error: %v\n", err)
+								log.Printf("stdin write error: %v", err)
 							}
 							return
 						}
 						written += wn
 						if written < n {
-							// Check if we need to stop
 							select {
 							case <-s.done:
 								return
 							default:
-								// Continue writing remaining data
 							}
 						}
 					}
@@ -228,75 +213,56 @@ func (s *Session) Start() error {
 		}
 	}()
 
-	// Create a custom stdout writer that preserves cursor visibility
 	stdoutWriter := &cursorPreservingWriter{
 		out:     os.Stdout,
 		session: s,
 	}
 
-	// Handle stdout with cursor preservation
 	go func() {
 		defer s.wg.Done()
 		io.Copy(stdoutWriter, s.stdout)
 	}()
 
-	// Handle stderr
 	go func() {
 		defer s.wg.Done()
 		io.Copy(os.Stderr, s.stderr)
 	}()
 
-	// Wait for session to complete
 	err = s.session.Wait()
 
-	// Mark as exiting to prevent further stdin writes
 	s.exitMutex.Lock()
 	s.exiting = true
 	s.exitMutex.Unlock()
-
-	// Signal all goroutines to stop
 	close(s.done)
 
-	// Wait for all goroutines to finish (with timeout)
 	waitCh := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		close(waitCh)
 	}()
 
-	// Wait with timeout
 	select {
 	case <-waitCh:
-		// Normal completion
 	case <-time.After(500 * time.Millisecond):
-		// Timeout - force continue
 	}
-
-	// We don't show cursor here because it might cause an EOF error
-	// The cursor visibility will be handled by BubbleTea
 
 	return err
 }
 
-// cursorPreservingWriter is a custom io.Writer that ensures cursor visibility
 type cursorPreservingWriter struct {
 	out     io.Writer
 	session *Session
 }
 
 func (w *cursorPreservingWriter) Write(p []byte) (n int, err error) {
-	// Write the actual data
 	return w.out.Write(p)
 }
 
-// containsSequence checks if a byte slice contains an escape sequence
 func containsSequence(data []byte, sequence string) bool {
 	seqBytes := []byte(sequence)
 	if len(seqBytes) > len(data) {
 		return false
 	}
-
-	// Simple search - could be optimized for production
 	for i := 0; i <= len(data)-len(seqBytes); i++ {
 		match := true
 		for j := 0; j < len(seqBytes); j++ {
@@ -312,42 +278,32 @@ func containsSequence(data []byte, sequence string) bool {
 	return false
 }
 
-// Close closes the SSH session and restores the terminal
 func (s *Session) Close() error {
-	// Mark as exiting first to prevent further stdin writes
 	s.exitMutex.Lock()
 	s.exiting = true
 	s.exitMutex.Unlock()
 
-	// Signal all goroutines to stop
 	select {
 	case <-s.done:
-		// Already closed
 	default:
 		close(s.done)
 	}
 
-	// Wait for all goroutines to finish (with timeout)
 	waitCh := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		close(waitCh)
 	}()
 
-	// Wait with timeout
 	select {
 	case <-waitCh:
-		// Normal completion
 	case <-time.After(500 * time.Millisecond):
-		// Timeout - force continue
 	}
 
-	// Restore terminal state
 	if s.originalTty != nil {
 		term.Restore(s.originalFd, s.originalTty)
 	}
 
-	// Close session and client
 	var sessionErr, clientErr error
 	if s.session != nil {
 		sessionErr = s.session.Close()
@@ -362,25 +318,21 @@ func (s *Session) Close() error {
 	return clientErr
 }
 
-// resizeTerminal updates the terminal size in the SSH session
 func (s *Session) resizeTerminal() {
-	// Don't attempt to resize if we're exiting
 	s.exitMutex.Lock()
 	exiting := s.exiting
 	s.exitMutex.Unlock()
-
 	if exiting {
 		return
 	}
-
 	width, height, err := term.GetSize(s.originalFd)
 	if err != nil {
+		log.Printf("Failed to get terminal size during resizeTerminal: %v", err)
 		return
 	}
 	s.session.WindowChange(height, width)
 }
 
-// IsTerminated checks if the session has been terminated
 func (s *Session) IsTerminated() bool {
 	select {
 	case <-s.done:
