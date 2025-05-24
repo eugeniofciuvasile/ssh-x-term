@@ -2,7 +2,7 @@
 
 SSH-X-Term is a powerful terminal-based SSH client with a TUI (Text User Interface) built on [Bubble Tea](https://github.com/charmbracelet/bubbletea).  
 It lets you manage SSH connections, securely store credentials using Bitwarden, and connect to remote servers with both password and key-based authentication.  
-Cross-platform features include support for sshpass (Unix), plink.exe (Windows), and full tmux integration.
+Cross-platform features include support for passh (Unix), plink.exe (Windows), and full tmux integration.
 
 ![Screenshot](https://github.com/user-attachments/assets/a545d09b-2101-4c6d-b5b9-377b2d554d57)
 
@@ -10,7 +10,7 @@ Cross-platform features include support for sshpass (Unix), plink.exe (Windows),
 
 - Manage SSH connections in an interactive Bubble Tea TUI.
 - Secure credential storage and retrieval via Bitwarden CLI.
-- Password-based SSH login automation using sshpass (Unix) or plink.exe (Windows).
+- Password-based SSH login automation using passh (Unix) or plink.exe (Windows).
 - Key-based SSH authentication.
 - Open connections in new tmux windows or current terminal.
 - Fullscreen and responsive TUI.
@@ -44,7 +44,7 @@ ssh-x-term/
 │       └── view.go                        # View rendering logic
 ├── pkg/
 │   └── sshutil/
-│       ├── auth.go                        # Authentication utilities (sshpass/plink, etc.)
+│       ├── auth.go                        # Authentication utilities (passh/plink, etc.)
 │       ├── terminal_unix.go               # Terminal utilities (Unix)
 │       └── terminal_windows.go            # Terminal utilities (Windows)
 ├── go.mod
@@ -64,7 +64,7 @@ ssh-x-term/
 
 - **Go 1.24+**
 - **Bitwarden CLI (`bw`)** — for credential management ([install guide](https://bitwarden.com/help/cli/))
-- **sshpass** — for password authentication on Unix ([install with your package manager](https://linux.die.net/man/1/sshpass))
+- **passh** — for password authentication on Unix ([compile it from here](https://github.com/clarkwang/passh))
 - **tmux** — recommended for multi-window SSH sessions ([install guide](https://github.com/tmux/tmux/wiki/Installing))
 - **plink.exe** — for password authentication on Windows ([download from PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html))
 - **(Optional) ssh client** — `ssh` should be available on your system
@@ -76,28 +76,29 @@ ssh-x-term/
 ssh-x-term requires the following system tools to be installed:
 
 - `tmux`
-- `sshpass`
+- `passh`
 - `bitwarden-cli` (npm package: `@bitwarden/cli`, install globally: `npm install -g @bitwarden/cli`)
 
 ### Linux (Debian/Ubuntu):
 
 ```sh
 sudo apt update
-sudo apt install -y tmux sshpass
+sudo apt install -y tmux
 npm install -g @bitwarden/cli
+# follow github repo https://github.com/clarkwang/passh to compile passh
 ```
 
 ### macOS (with Homebrew):
 
 ```sh
 brew install tmux
-# See https://gist.github.com/arunoda/7790979 for sshpass on macOS
 npm install -g @bitwarden/cli
+# follow github repo https://github.com/clarkwang/passh to compile passh
 ```
 
 ### Windows:
 
-- Install `tmux` and `sshpass` via WSL/Cygwin or use alternatives.
+- Install `tmux` and `passh` via WSL/Cygwin or use alternatives.
 - Install Bitwarden CLI with: `npm install -g @bitwarden/cli`
 
 ## Installation
@@ -116,7 +117,7 @@ sxt
 
 This will automatically download the appropriate binary for your platform and set up the command.
 
-The npm installer also attempts to install required dependencies (`bw`, `sshpass`, `tmux`) if they are not already available in your system's `$PATH`.
+The npm installer also attempts to install required dependencies (`bw`, `passh`, `tmux`) if they are not already available in your system's `$PATH`.
 
 ---
 
@@ -182,7 +183,7 @@ sxt
 
 4. **SSH Session:**
     - `Esc` to disconnect.
-    - Passwords are supplied securely via sshpass or plink.exe (never echoed or stored in plaintext).
+    - Passwords are supplied securely via passh or plink.exe (never echoed or stored in plaintext).
 
 ## Configuration
 
@@ -191,7 +192,7 @@ Connection secrets are stored in your Bitwarden vault.
 
 ## Security Notes
 
-- **Passwords are only handled via secure subprocesses (`sshpass`, `plink.exe`) and Bitwarden.**
+- **Passwords are only handled via secure subprocesses (`passh`, `plink.exe`) and Bitwarden.**
 - **No plaintext passwords are ever written to disk or logs.**
 
 ## License
@@ -201,7 +202,7 @@ Connection secrets are stored in your Bitwarden vault.
 ## Disclaimer
 
 SSH-X-Term is an independent open-source project released under the MIT License.  
-It is **not affiliated with, endorsed by, or supported by** any of the credited projects, including Bubble Tea, Bitwarden, sshpass, PuTTY/plink, or any other third-party software listed above.
+It is **not affiliated with, endorsed by, or supported by** any of the credited projects, including Bubble Tea, Bitwarden, passh, PuTTY/plink, or any other third-party software listed above.
 
 **Security Notice:**  
 SSH-X-Term integrates with external tools for SSH and credential management.  
@@ -214,5 +215,5 @@ For details, see the [MIT License](LICENSE).
 
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea)
 - [Bitwarden CLI](https://bitwarden.com/help/cli/)
-- [sshpass](https://linux.die.net/man/1/sshpass)
+- [passh](https://github.com/clarkwang/passh)
 - [PuTTY/plink.exe](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html)
