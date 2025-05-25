@@ -4,58 +4,56 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
-	"runtime"
-	"strconv"
-	"strings"
-
-	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
-	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
 )
 
 // Message types for async operations
-type LoadConnectionsFinishedMsg struct {
-	Connections []config.SSHConnection
-	Err         error
-}
+type (
+	LoadConnectionsFinishedMsg struct {
+		Connections []config.SSHConnection
+		Err         error
+	}
 
-type BitwardenStatusMsg struct {
-	LoggedIn bool
-	Unlocked bool
-	Err      error
-}
+	BitwardenStatusMsg struct {
+		LoggedIn bool
+		Unlocked bool
+		Err      error
+	}
 
-type BitwardenLoadOrganizationsMsg struct {
-	Organizations []config.Organization
-	Err           error
-}
+	BitwardenLoadOrganizationsMsg struct {
+		Organizations []config.Organization
+		Err           error
+	}
 
-type BitwardenLoadCollectionsMsg struct {
-	Collections []config.Collection
-	Err         error
-}
+	BitwardenLoadCollectionsMsg struct {
+		Collections []config.Collection
+		Err         error
+	}
 
-type BitwardenLoadConnectionsByCollectionMsg struct {
-	Connections []config.SSHConnection
-	Err         error
-}
+	BitwardenLoadConnectionsByCollectionMsg struct {
+		Connections []config.SSHConnection
+		Err         error
+	}
 
-type BitwardenLoginResultMsg struct {
-	Success bool
-	Err     error
-}
+	BitwardenLoginResultMsg struct {
+		Success bool
+		Err     error
+	}
 
-type BitwardenUnlockResultMsg struct {
-	Success bool
-	Err     error
-}
+	BitwardenUnlockResultMsg struct {
+		Success bool
+		Err     error
+	}
+)
 
 type AppState int
 
@@ -70,6 +68,7 @@ const (
 	StateBitwardenUnlock
 	StateOrganizationSelect
 	StateCollectionSelect
+
 	headerLines   = 4
 	footerLines   = 4
 	minListHeight = 5
@@ -109,7 +108,6 @@ func NewModel() *Model {
 		width:         defaultWidth,
 		height:        defaultHeight,
 		spinner:       s,
-		loading:       false,
 	}
 }
 
@@ -129,33 +127,34 @@ func (m *Model) listHeight() int {
 
 func loadConnectionsCmd(backend config.Storage) tea.Cmd {
 	return func() tea.Msg {
-		var err error
-		if cm, ok := backend.(*config.ConfigManager); ok {
-			err = cm.Load()
-			if err != nil {
+		switch b := backend.(type) {
+		case *config.ConfigManager:
+			if err := b.Load(); err != nil {
 				log.Printf("LoadConnectionsFinishedMsg: error loading config manager: %v", err)
 				return LoadConnectionsFinishedMsg{Err: err}
 			}
-			return LoadConnectionsFinishedMsg{Connections: cm.ListConnections()}
-		} else if bw, ok := backend.(*config.BitwardenManager); ok {
-			if bw.IsPersonalVault() {
-				err = bw.Load()
+			return LoadConnectionsFinishedMsg{Connections: b.ListConnections()}
+		case *config.BitwardenManager:
+			var err error
+			if b.IsPersonalVault() {
+				err = b.Load()
 			} else {
-				coll := bw.GetSelectedCollection()
+				coll := b.GetSelectedCollection()
 				if coll == nil {
 					log.Printf("LoadConnectionsFinishedMsg: no selected collection in Bitwarden")
 					return LoadConnectionsFinishedMsg{Err: fmt.Errorf("no selected collection")}
 				}
-				err = bw.LoadConnectionsByCollectionId(coll.ID)
+				err = b.LoadConnectionsByCollectionId(coll.ID)
 			}
 			if err != nil {
 				log.Printf("LoadConnectionsFinishedMsg: error loading bitwarden: %v", err)
 				return LoadConnectionsFinishedMsg{Err: err}
 			}
-			return LoadConnectionsFinishedMsg{Connections: bw.ListConnections()}
+			return LoadConnectionsFinishedMsg{Connections: b.ListConnections()}
+		default:
+			log.Printf("LoadConnectionsFinishedMsg: unknown storage backend")
+			return LoadConnectionsFinishedMsg{Err: fmt.Errorf("unknown storage backend")}
 		}
-		log.Printf("LoadConnectionsFinishedMsg: unknown storage backend")
-		return LoadConnectionsFinishedMsg{Err: fmt.Errorf("unknown storage backend")}
 	}
 }
 
@@ -175,8 +174,7 @@ func loadBitwardenStatusCmd(bw *config.BitwardenManager) tea.Cmd {
 
 func loadBitwardenOrganizationsCmd(bw *config.BitwardenManager) tea.Cmd {
 	return func() tea.Msg {
-		err := bw.LoadOrganizations()
-		if err != nil {
+		if err := bw.LoadOrganizations(); err != nil {
 			log.Printf("BitwardenLoadOrganizationsMsg: error loading organizations: %v", err)
 			return BitwardenLoadOrganizationsMsg{Err: err}
 		}
@@ -186,8 +184,7 @@ func loadBitwardenOrganizationsCmd(bw *config.BitwardenManager) tea.Cmd {
 
 func loadBitwardenCollectionsCmd(bw *config.BitwardenManager, orgID string) tea.Cmd {
 	return func() tea.Msg {
-		err := bw.LoadCollectionsByOrganizationId(orgID)
-		if err != nil {
+		if err := bw.LoadCollectionsByOrganizationId(orgID); err != nil {
 			log.Printf("BitwardenLoadCollectionsMsg: error loading collections: %v", err)
 			return BitwardenLoadCollectionsMsg{Err: err}
 		}
@@ -197,8 +194,7 @@ func loadBitwardenCollectionsCmd(bw *config.BitwardenManager, orgID string) tea.
 
 func loadBitwardenConnectionsByCollectionCmd(bw *config.BitwardenManager, collectionID string) tea.Cmd {
 	return func() tea.Msg {
-		err := bw.LoadConnectionsByCollectionId(collectionID)
-		if err != nil {
+		if err := bw.LoadConnectionsByCollectionId(collectionID); err != nil {
 			log.Printf("BitwardenLoadConnectionsByCollectionMsg: error loading connections: %v", err)
 			return BitwardenLoadConnectionsByCollectionMsg{Err: err}
 		}
@@ -208,8 +204,7 @@ func loadBitwardenConnectionsByCollectionCmd(bw *config.BitwardenManager, collec
 
 func loginBitwardenCmd(bw *config.BitwardenManager, password, otp string) tea.Cmd {
 	return func() tea.Msg {
-		err := bw.Login(password, otp)
-		if err != nil {
+		if err := bw.Login(password, otp); err != nil {
 			log.Printf("BitwardenLoginResultMsg: error logging in: %v", err)
 			return BitwardenLoginResultMsg{Success: false, Err: err}
 		}
@@ -219,8 +214,7 @@ func loginBitwardenCmd(bw *config.BitwardenManager, password, otp string) tea.Cm
 
 func unlockBitwardenCmd(bw *config.BitwardenManager, password string) tea.Cmd {
 	return func() tea.Msg {
-		err := bw.Unlock(password)
-		if err != nil {
+		if err := bw.Unlock(password); err != nil {
 			log.Printf("BitwardenUnlockResultMsg: error unlocking: %v", err)
 			return BitwardenUnlockResultMsg{Success: false, Err: err}
 		}
@@ -230,22 +224,27 @@ func unlockBitwardenCmd(bw *config.BitwardenManager, password string) tea.Cmd {
 
 func (m *Model) ReloadConnections() tea.Cmd {
 	m.loading = true
-	return loadConnectionsCmd(m.storageBackend)
+	return tea.Batch(
+		loadConnectionsCmd(m.storageBackend),
+		m.spinner.Tick,
+	)
 }
 
 func (m *Model) loadPersonalVaultConnections() tea.Cmd {
 	m.loading = true
 	m.bitwardenManager.SetPersonalVault(true)
 	m.storageBackend = m.bitwardenManager
-	return loadConnectionsCmd(m.bitwardenManager)
+	return tea.Batch(
+		loadConnectionsCmd(m.bitwardenManager),
+		m.spinner.Tick,
+	)
 }
 
 func sanitizeFileName(name string) string {
-	re := regexp.MustCompile(`[^a-zA-Z0-9]`)
-	return re.ReplaceAllString(name, "_")
+	return regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(name, "_")
 }
 
-func getTempKeyFile(conn config.SSHConnection) (string, error) {
+func getKeyFile(conn config.SSHConnection) (string, error) {
 	usr, err := user.Current()
 	if err != nil {
 		return "", err
@@ -309,7 +308,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				}
 				m.storageBackend = cm
 				m.configManager = cm
-				return loadConnectionsCmd(cm)
+				return tea.Batch(
+					loadConnectionsCmd(cm),
+					m.spinner.Tick,
+				)
 			case components.StorageBitwarden:
 				m.loading = true
 				bwm, err := config.NewBitwardenManager(&config.BitwardenConfig{})
@@ -319,7 +321,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 					return nil
 				}
 				m.bitwardenManager = bwm
-				return loadBitwardenStatusCmd(bwm)
+				return tea.Batch(
+					loadBitwardenStatusCmd(bwm),
+					m.spinner.Tick,
+				)
 			}
 		}
 		return nil
@@ -357,9 +362,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		}
 		if m.bitwardenLoginForm.IsSubmitted() {
 			m.loading = true
-			password := m.bitwardenLoginForm.Password()
-			otp := m.bitwardenLoginForm.OTP()
-			return loginBitwardenCmd(m.bitwardenManager, password, otp)
+			return tea.Batch(
+				loginBitwardenCmd(m.bitwardenManager, m.bitwardenLoginForm.Password(), m.bitwardenLoginForm.OTP()),
+				m.spinner.Tick,
+			)
 		}
 		return nil
 
@@ -373,8 +379,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		}
 		if m.bitwardenUnlockForm.IsSubmitted() {
 			m.loading = true
-			password := m.bitwardenUnlockForm.Password()
-			return unlockBitwardenCmd(m.bitwardenManager, password)
+			return tea.Batch(
+				unlockBitwardenCmd(m.bitwardenManager, m.bitwardenUnlockForm.Password()),
+				m.spinner.Tick,
+			)
 		}
 		return nil
 
@@ -383,7 +391,10 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		if org := m.bitwardenOrganizationList.SelectedOrganization(); org != nil {
 			m.loading = true
 			m.storageBackend = m.bitwardenManager
-			return loadBitwardenCollectionsCmd(m.bitwardenManager, org.ID)
+			return tea.Batch(
+				loadBitwardenCollectionsCmd(m.bitwardenManager, org.ID),
+				m.spinner.Tick,
+			)
 		}
 
 	case StateCollectionSelect:
@@ -392,117 +403,14 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			m.loading = true
 			m.bitwardenManager.SetSelectedCollection(collection)
 			m.storageBackend = m.bitwardenManager
-			return loadBitwardenConnectionsByCollectionCmd(m.bitwardenManager, collection.ID)
+			return tea.Batch(
+				loadBitwardenConnectionsByCollectionCmd(m.bitwardenManager, collection.ID),
+				m.spinner.Tick,
+			)
 		}
 
 	case StateConnectionList:
-		m.connectionList = model.(*components.ConnectionList)
-		if conn := m.connectionList.SelectedConnection(); conn != nil {
-			openInNewWindow := m.connectionList.OpenInNewTerminal()
-			isWindows := runtime.GOOS == "windows"
-			var keyPath string
-
-			if !conn.UsePassword && conn.Password != "" {
-				var err error
-				keyPath, err = getTempKeyFile(*conn)
-				if err != nil {
-					m.errorMessage = fmt.Sprintf("Failed to write key file: %s", err)
-					return nil
-				}
-			}
-
-			sshArgs := []string{}
-			if !conn.UsePassword && keyPath != "" {
-				sshArgs = append(sshArgs, "-i", keyPath)
-			}
-			if conn.Port != 22 && conn.Port != 0 {
-				sshArgs = append(sshArgs, "-p", strconv.Itoa(conn.Port))
-			}
-			userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
-			sshArgs = append(sshArgs, userHost)
-
-			if !isWindows {
-				if openInNewWindow {
-					var sshCommand string
-					usedPassh := false
-
-					if conn.UsePassword && conn.Password != "" {
-						if _, err := exec.LookPath("passh"); err == nil {
-							usedPassh = true
-							sshCommand = fmt.Sprintf(
-								"passh -p %q ssh %s",
-								conn.Password,
-								strings.Join(sshArgs, " "),
-							)
-						} else {
-							log.Print("passh not found, falling back to manual password entry or key-based login.")
-							sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
-						}
-					} else {
-						sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
-					}
-
-					windowName := fmt.Sprintf("%s@%s:%d - %s", conn.Username, conn.Host, conn.Port, conn.Name)
-					cmd := exec.Command("tmux", "new-window", "-n", windowName, sshCommand)
-					err := cmd.Start()
-					if err != nil {
-						log.Printf("Error launching tmux window: %v", err)
-					}
-					if conn.UsePassword && conn.Password != "" && !usedPassh {
-						log.Print("Password authentication not supported in this mode. Use manual entry or key-based login, or install passh.")
-					}
-					m.state = StateConnectionList
-					m.connectionList.Reset()
-					return nil
-				} else {
-					m.terminal = components.NewTerminalComponent(*conn)
-					m.state = StateSSHTerminal
-					m.connectionList.Reset()
-					return m.terminal.Init()
-				}
-			} else {
-				if openInNewWindow {
-					usePlink := false
-					if conn.UsePassword && conn.Password != "" {
-						if _, err := exec.LookPath("plink.exe"); err == nil {
-							usePlink = true
-						}
-					}
-
-					var cmd *exec.Cmd
-					if usePlink {
-						plinkArgs := []string{"-ssh", userHost, "-pw", conn.Password}
-						if conn.Port != 22 && conn.Port != 0 {
-							plinkArgs = append(plinkArgs, "-P", strconv.Itoa(conn.Port))
-						}
-						if !conn.UsePassword && keyPath != "" {
-							plinkArgs = append(plinkArgs, "-i", keyPath)
-						}
-						cmd = exec.Command("cmd", "/C", "start", "", "plink.exe")
-						cmd.Args = append(cmd.Args, plinkArgs...)
-					} else {
-						cmd = exec.Command("cmd", "/C", "start", "", "ssh")
-						cmd.Args = append(cmd.Args, sshArgs...)
-					}
-
-					err := cmd.Start()
-					if err != nil {
-						log.Printf("Error launching terminal: %v", err)
-					}
-					if conn.UsePassword && conn.Password != "" && !usePlink {
-						log.Print("Password authentication not supported in this mode. Use manual entry, key-based login, or install plink.exe.")
-					}
-					m.state = StateConnectionList
-					m.connectionList.Reset()
-					return nil
-				} else {
-					m.terminal = components.NewTerminalComponent(*conn)
-					m.state = StateSSHTerminal
-					m.connectionList.Reset()
-					return m.terminal.Init()
-				}
-			}
-		}
+		return m.handleConnectionList(model)
 
 	case StateAddConnection, StateEditConnection:
 		m.connectionForm = model.(*components.ConnectionForm)
@@ -518,28 +426,23 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			var err error
 			if m.state == StateEditConnection {
 				err = m.storageBackend.EditConnection(conn)
-			} else {
-				if m.storageSelect.IsChosen() {
-					switch m.storageSelect.SelectedBackend() {
-					case components.StorageLocal:
+			} else if m.storageSelect.IsChosen() {
+				switch m.storageSelect.SelectedBackend() {
+				case components.StorageLocal:
+					err = m.storageBackend.AddConnection(conn)
+				case components.StorageBitwarden:
+					if m.bitwardenManager.IsPersonalVault() {
 						err = m.storageBackend.AddConnection(conn)
-					case components.StorageBitwarden:
-						if m.bitwardenManager.IsPersonalVault() {
-							err = m.storageBackend.AddConnection(conn)
-						} else {
-							selectedCollection := m.bitwardenCollectionList.SelectedCollection()
-							selectedOrg := m.bitwardenOrganizationList.SelectedOrganization()
-							var collectionID, organizationID string
-							if selectedCollection != nil && selectedOrg != nil {
-								collectionID = selectedCollection.ID
-								organizationID = selectedOrg.ID
-							}
-							err = m.bitwardenManager.AddConnectionInCollectionAndOrganization(conn, organizationID, collectionID)
+					} else {
+						var collectionID, organizationID string
+						if selCol, selOrg := m.bitwardenCollectionList.SelectedCollection(), m.bitwardenOrganizationList.SelectedOrganization(); selCol != nil && selOrg != nil {
+							collectionID = selCol.ID
+							organizationID = selOrg.ID
 						}
+						err = m.bitwardenManager.AddConnectionInCollectionAndOrganization(conn, organizationID, collectionID)
 					}
 				}
 			}
-
 			if err != nil {
 				m.loading = false
 				m.errorMessage = fmt.Sprintf("Failed to save connection: %s", err)
@@ -547,11 +450,14 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				m.state = StateConnectionList
 				return loadConnectionsCmd(m.storageBackend)
 			}
-
 			m.connectionForm = nil
 			m.state = StateConnectionList
-			return loadConnectionsCmd(m.storageBackend)
+			return tea.Batch(
+				loadConnectionsCmd(m.storageBackend),
+				m.spinner.Tick,
+			)
 		}
+
 	case StateSSHTerminal:
 		m.terminal = model.(*components.TerminalComponent)
 		if m.terminal.IsFinished() {
@@ -583,16 +489,14 @@ func (m *Model) resetConnectionState() {
 			}
 			m.bitwardenManager.SetPersonalVault(false)
 			m.state = StateOrganizationSelect
-		} else {
-			if m.bitwardenManager.IsPersonalVault() {
-				if m.bitwardenOrganizationList != nil {
-					m.bitwardenOrganizationList.Reset()
-				}
-				m.bitwardenManager.SetPersonalVault(false)
-				m.state = StateOrganizationSelect
-			} else {
-				m.state = StateCollectionSelect
+		} else if m.bitwardenManager.IsPersonalVault() {
+			if m.bitwardenOrganizationList != nil {
+				m.bitwardenOrganizationList.Reset()
 			}
+			m.bitwardenManager.SetPersonalVault(false)
+			m.state = StateOrganizationSelect
+		} else {
+			m.state = StateCollectionSelect
 		}
 	}
 }
