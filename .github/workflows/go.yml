@@ -1,48 +1,51 @@
-name: Go Release and npm Publish
+name: Build
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      manual_version:
+        description: 'Manual version tag (e.g., v1.2.3); leave blank for auto'
+        required: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     outputs:
-      new_tag: ${{ steps.tag_step.outputs.new_tag }}  # Output the tag for use in the npm job
+      new_tag: ${{ steps.tag_step.outputs.new_tag }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Fetch all history and tags
+        fetch-depth: 0
 
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.24.2'
+        go-version: '1.24'
 
     - name: Determine version tag
       id: get_tag
       run: |
-        # Check if any tags exist
-        if git tag | grep -q "^v[0-9]"; then
-          # Get the latest tag and increment the patch version
-          latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
-          echo "Found latest tag: $latest_tag"
-          
-          # Parse the version numbers
-          major=$(echo $latest_tag | cut -d. -f1 | sed 's/v//')
-          minor=$(echo $latest_tag | cut -d. -f2)
-          patch=$(echo $latest_tag | cut -d. -f3)
-          
-          # Increment patch version
-          new_patch=$((patch + 1))
-          new_tag="v$major.$minor.$new_patch"
+        # If manual_version is set and valid, use it
+        if [[ -n "${{ github.event.inputs.manual_version }}" ]] && [[ "${{ github.event.inputs.manual_version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          new_tag="${{ github.event.inputs.manual_version }}"
+          echo "Manual version input detected: $new_tag"
         else
-          # No tags exist, start with v0.0.1
-          echo "No existing version tags found, starting with v0.0.1"
-          new_tag="v0.0.1"
+          # Check if any tags exist
+          if git tag | grep -q "^v[0-9]"; then
+            latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+            echo "Found latest tag: $latest_tag"
+            major=$(echo $latest_tag | cut -d. -f1 | sed 's/v//')
+            minor=$(echo $latest_tag | cut -d. -f2)
+            patch=$(echo $latest_tag | cut -d. -f3)
+            new_patch=$((patch + 1))
+            new_tag="v$major.$minor.$new_patch"
+          else
+            echo "No existing version tags found, starting with v0.0.1"
+            new_tag="v0.0.1"
+          fi
         fi
-        
         echo "Version tag will be: $new_tag"
         echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
@@ -61,7 +64,7 @@ jobs:
         git push origin main
 
     - name: Create and push new tag
-      id: tag_step  # Add ID to reference in outputs
+      id: tag_step
       run: |
         echo "Creating and pushing tag: ${{ steps.get_tag.outputs.new_tag }}"
         git tag ${{ steps.get_tag.outputs.new_tag }}
@@ -71,13 +74,9 @@ jobs:
     - name: Build Go binaries for multiple platforms
       run: |
         mkdir -p dist
-        # Linux
         GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/sxt
-        # Windows
         GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/sxt
-        # macOS
         GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/sxt
-        # Add ARM64 builds for broader compatibility
         GOOS=linux GOARCH=arm64 go build -o dist/ssh-x-term-linux-arm64 ./cmd/sxt
         GOOS=darwin GOARCH=arm64 go build -o dist/ssh-x-term-darwin-arm64 ./cmd/sxt
 
@@ -97,23 +96,20 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-npm:
-    needs: release  # This job runs after the release job
+    needs: release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.release.outputs.new_tag }}  # Checkout the new tag
-      
+          ref: ${{ needs.release.outputs.new_tag }}
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '16'
           registry-url: 'https://registry.npmjs.org/'
-      
       - name: Install dependencies
         run: npm ci || npm install
-      
       - name: Publish to npm
         run: npm publish
         env:
