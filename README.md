@@ -118,7 +118,7 @@ npm install -g @bitwarden/cli
 
 ### Option 1: Install using npm (Recommended)
 
-The easiest way to install SSH-X-Term is using npm:
+The easiest way to install SSH-X-Term is using npm [npm package](https://www.npmjs.com/package/ssh-x-term):
 
 ```sh
 # Install globally
