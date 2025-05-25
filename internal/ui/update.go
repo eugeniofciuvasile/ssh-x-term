@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -12,23 +14,11 @@ import (
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
-		// Only update spinner if loading
 		if m.loading {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
-		return m, nil
-
-	case LoadConnectionsFinishedMsg:
-		m.loading = false
-		if msg.Err != nil {
-			m.errorMessage = msg.Err.Error()
-			return m, nil
-		}
-		m.connectionList = components.NewConnectionList(msg.Connections)
-		m.connectionList.SetSize(m.width, m.listHeight())
-		m.state = StateConnectionList
 		return m, nil
 
 	case BitwardenStatusMsg:
@@ -130,6 +120,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner.Tick,
 		)
 
+	case SaveConnectionResultMsg:
+		m.connectionForm = nil
+		m.state = StateConnectionList
+		m.loading = true // spinner continues while reloading connections
+		if msg.Err != nil {
+			m.errorMessage = fmt.Sprintf("Failed to save connection: %s", msg.Err)
+		}
+		return m, tea.Batch(
+			loadConnectionsCmd(m.storageBackend),
+			m.spinner.Tick,
+		)
+
+	case DeleteConnectionResultMsg:
+		m.state = StateConnectionList
+		m.loading = true // spinner continues while reloading connections
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+		}
+		return m, tea.Batch(
+			loadConnectionsCmd(m.storageBackend),
+			m.spinner.Tick,
+		)
+
+	case LoadConnectionsFinishedMsg:
+		m.loading = false // finally stop the spinner here
+		if msg.Err != nil {
+			m.errorMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.connectionList = components.NewConnectionList(msg.Connections)
+		m.connectionList.SetSize(m.width, m.listHeight())
+		m.state = StateConnectionList
+		return m, nil
+
 	case components.ToggleOpenInNewTerminalMsg:
 		return m, nil
 
@@ -198,14 +222,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case msg.String() == "d":
 					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil && m.storageBackend != nil {
 						m.loading = true
-						if err := m.storageBackend.DeleteConnection(selectedItem.ID); err != nil {
-							m.loading = false
-							m.errorMessage = err.Error()
-							return m, nil
-						}
-						cmd := m.ReloadConnections()
-						m.connectionList.Reset()
-						return m, cmd
+						return m, tea.Batch(
+							deleteConnectionCmd(m.storageBackend, selectedItem.ID),
+							m.spinner.Tick,
+						)
 					}
 				case msg.String() == "o":
 					if m.connectionList != nil {
@@ -247,7 +267,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Default: pass message to active component
 	if activeComponent := m.getActiveComponent(); activeComponent != nil {
 		model, cmd := activeComponent.Update(msg)
 		return m, m.handleComponentResult(model, cmd)

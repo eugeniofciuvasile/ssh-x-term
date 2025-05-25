@@ -22,39 +22,40 @@ type (
 		Connections []config.SSHConnection
 		Err         error
 	}
-
 	BitwardenStatusMsg struct {
 		LoggedIn bool
 		Unlocked bool
 		Err      error
 	}
-
 	BitwardenLoadOrganizationsMsg struct {
 		Organizations []config.Organization
 		Err           error
 	}
-
 	BitwardenLoadCollectionsMsg struct {
 		Collections []config.Collection
 		Err         error
 	}
-
 	BitwardenLoadConnectionsByCollectionMsg struct {
 		Connections []config.SSHConnection
 		Err         error
 	}
-
 	BitwardenLoginResultMsg struct {
 		Success bool
 		Err     error
 	}
-
 	BitwardenUnlockResultMsg struct {
 		Success bool
 		Err     error
 	}
+	SaveConnectionResultMsg struct {
+		Err error
+	}
+	DeleteConnectionResultMsg struct {
+		Err error
+	}
 )
 
+// AppState type
 type AppState int
 
 const (
@@ -123,7 +124,17 @@ func (m *Model) listHeight() int {
 	return usableHeight
 }
 
-// === Async commands ===
+// === Async command creators ===
+
+func (m *Model) loadPersonalVaultConnections() tea.Cmd {
+	m.loading = true
+	m.bitwardenManager.SetPersonalVault(true)
+	m.storageBackend = m.bitwardenManager
+	return tea.Batch(
+		loadConnectionsCmd(m.bitwardenManager),
+		m.spinner.Tick,
+	)
+}
 
 func loadConnectionsCmd(backend config.Storage) tea.Cmd {
 	return func() tea.Msg {
@@ -222,24 +233,48 @@ func unlockBitwardenCmd(bw *config.BitwardenManager, password string) tea.Cmd {
 	}
 }
 
-func (m *Model) ReloadConnections() tea.Cmd {
-	m.loading = true
-	return tea.Batch(
-		loadConnectionsCmd(m.storageBackend),
-		m.spinner.Tick,
-	)
+func saveConnectionCmd(
+	backend config.Storage,
+	bitwardenManager *config.BitwardenManager,
+	storageSelect *components.StorageSelect,
+	bitwardenCollectionList *components.BitwardenCollectionList,
+	bitwardenOrganizationList *components.BitwardenOrganizationList,
+	conn config.SSHConnection,
+	isEdit bool,
+) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		if isEdit {
+			err = backend.EditConnection(conn)
+		} else if storageSelect.IsChosen() {
+			switch storageSelect.SelectedBackend() {
+			case components.StorageLocal:
+				err = backend.AddConnection(conn)
+			case components.StorageBitwarden:
+				if bitwardenManager.IsPersonalVault() {
+					err = backend.AddConnection(conn)
+				} else {
+					var collectionID, organizationID string
+					if selCol, selOrg := bitwardenCollectionList.SelectedCollection(), bitwardenOrganizationList.SelectedOrganization(); selCol != nil && selOrg != nil {
+						collectionID = selCol.ID
+						organizationID = selOrg.ID
+					}
+					err = bitwardenManager.AddConnectionInCollectionAndOrganization(conn, organizationID, collectionID)
+				}
+			}
+		}
+		return SaveConnectionResultMsg{Err: err}
+	}
 }
 
-func (m *Model) loadPersonalVaultConnections() tea.Cmd {
-	m.loading = true
-	m.bitwardenManager.SetPersonalVault(true)
-	m.storageBackend = m.bitwardenManager
-	return tea.Batch(
-		loadConnectionsCmd(m.bitwardenManager),
-		m.spinner.Tick,
-	)
+func deleteConnectionCmd(backend config.Storage, id string) tea.Cmd {
+	return func() tea.Msg {
+		err := backend.DeleteConnection(id)
+		return DeleteConnectionResultMsg{Err: err}
+	}
 }
 
+// Helpers
 func sanitizeFileName(name string) string {
 	return regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(name, "_")
 }
@@ -423,41 +458,19 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		if m.connectionForm.IsSubmitted() {
 			m.loading = true
 			conn := m.connectionForm.Connection()
-			var err error
-			if m.state == StateEditConnection {
-				err = m.storageBackend.EditConnection(conn)
-			} else if m.storageSelect.IsChosen() {
-				switch m.storageSelect.SelectedBackend() {
-				case components.StorageLocal:
-					err = m.storageBackend.AddConnection(conn)
-				case components.StorageBitwarden:
-					if m.bitwardenManager.IsPersonalVault() {
-						err = m.storageBackend.AddConnection(conn)
-					} else {
-						var collectionID, organizationID string
-						if selCol, selOrg := m.bitwardenCollectionList.SelectedCollection(), m.bitwardenOrganizationList.SelectedOrganization(); selCol != nil && selOrg != nil {
-							collectionID = selCol.ID
-							organizationID = selOrg.ID
-						}
-						err = m.bitwardenManager.AddConnectionInCollectionAndOrganization(conn, organizationID, collectionID)
-					}
-				}
-			}
-			if err != nil {
-				m.loading = false
-				m.errorMessage = fmt.Sprintf("Failed to save connection: %s", err)
-				m.connectionForm = nil
-				m.state = StateConnectionList
-				return loadConnectionsCmd(m.storageBackend)
-			}
-			m.connectionForm = nil
-			m.state = StateConnectionList
 			return tea.Batch(
-				loadConnectionsCmd(m.storageBackend),
+				saveConnectionCmd(
+					m.storageBackend,
+					m.bitwardenManager,
+					m.storageSelect,
+					m.bitwardenCollectionList,
+					m.bitwardenOrganizationList,
+					conn,
+					m.state == StateEditConnection,
+				),
 				m.spinner.Tick,
 			)
 		}
-
 	case StateSSHTerminal:
 		m.terminal = model.(*components.TerminalComponent)
 		if m.terminal.IsFinished() {
@@ -470,7 +483,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 	return cmd
 }
 
-// Helper to reset connection state
+// State reset helpers
 func (m *Model) resetConnectionState() {
 	if m.connectionList != nil {
 		m.connectionList.Reset()
@@ -501,7 +514,6 @@ func (m *Model) resetConnectionState() {
 	}
 }
 
-// Helper to reset collection state
 func (m *Model) resetCollectionState() {
 	if m.bitwardenCollectionList != nil {
 		m.bitwardenCollectionList.Reset()
@@ -512,7 +524,6 @@ func (m *Model) resetCollectionState() {
 	m.state = StateOrganizationSelect
 }
 
-// Helper to reset organization state
 func (m *Model) resetOrganizationState() {
 	if m.bitwardenOrganizationList != nil {
 		m.bitwardenOrganizationList.Reset()
