@@ -1,6 +1,6 @@
 {
   "name": "ssh-x-term",
-  "version": "0.0.37",
+  "version": "0.0.38",
   "description": "TUI to handle multiple SSH connections simultaneously",
   "main": "index.js",
   "bin": {
