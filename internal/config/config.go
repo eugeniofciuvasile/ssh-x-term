@@ -7,10 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	keyring "github.com/zalando/go-keyring"
 )
 
 const (
 	defaultConfigFileName = "ssh-x-term.json"
+	keyringService        = "ssh-x-term" // Keyring service name
 )
 
 type ConfigManager struct {
@@ -41,7 +44,109 @@ func NewConfigManager() (*ConfigManager, error) {
 	}, nil
 }
 
-// Storage interface methods
+// AddConnection stores an SSH connection in the configuration.
+func (cm *ConfigManager) AddConnection(conn SSHConnection) error {
+	// Handle password securely using keyring
+	if conn.Password != "" {
+		if err := keyring.Set(keyringService, conn.ID, conn.Password); err != nil {
+			log.Fatalf("Failed to store password in keyring: %v", err)
+			return err
+		}
+		// Unset password in plaintext config
+		conn.Password = ""
+	}
+
+	for i, existing := range cm.Config.Connections {
+		if existing.ID == conn.ID {
+			cm.Config.Connections[i] = conn
+			return cm.Save()
+		}
+	}
+	cm.Config.Connections = append(cm.Config.Connections, conn)
+	return cm.Save()
+}
+
+// EditConnection updates an existing SSH connection in the configuration.
+func (cm *ConfigManager) EditConnection(conn SSHConnection) error {
+	// Handle password securely using keyring
+	if conn.Password != "" {
+		if err := keyring.Set(keyringService, conn.ID, conn.Password); err != nil {
+			log.Printf("Failed to store password in keyring: %v", err)
+			return err
+		}
+
+		// Unset password in plaintext config
+		conn.Password = ""
+	}
+
+	for i, existing := range cm.Config.Connections {
+		if existing.ID == conn.ID {
+			cm.Config.Connections[i] = conn
+			return cm.Save()
+		}
+	}
+	log.Printf("Connection with ID %s not found for edit", conn.ID)
+	return errors.New("connection with ID " + conn.ID + " not found")
+}
+
+// DeleteConnection removes an SSH connection from the configuration and keyring.
+func (cm *ConfigManager) DeleteConnection(id string) error {
+	// Remove password from keyring
+	if err := keyring.Delete(keyringService, id); err != nil {
+		log.Printf("Failed to delete password from keyring (may not exist): %v", err)
+	}
+
+	for i, conn := range cm.Config.Connections {
+		if conn.ID == id {
+			cm.Config.Connections = slices.Delete(cm.Config.Connections, i, i+1)
+			return cm.Save()
+		}
+	}
+	log.Printf("Connection with ID %s not found for deletion", id)
+	return errors.New("connection with ID " + id + " not found")
+}
+
+// GetConnection retrieves an SSH connection, including its password if stored.
+func (cm *ConfigManager) GetConnection(id string) (SSHConnection, bool) {
+	for _, conn := range cm.Config.Connections {
+		if conn.ID == id {
+			// Retrieve password from keyring
+			password, err := keyring.Get(keyringService, id)
+			if err != nil {
+				log.Printf("Failed to retrieve password from keyring: %v", err)
+			} else {
+				conn.Password = password
+			}
+			return conn, true
+		}
+	}
+	return SSHConnection{}, false
+}
+
+// ListConnections retrieves all SSH connections, including passwords fetched securely from the keyring.
+// Passwords are loaded only if connection.UsePassword is true.
+func (cm *ConfigManager) ListConnections() []SSHConnection {
+	for i, conn := range cm.Config.Connections {
+		// Skip loading the password if UsePassword is false
+		if !conn.UsePassword {
+			log.Printf("Skipping password retrieval for connection ID: %s because UsePassword is false", conn.ID)
+			continue
+		}
+
+		// Retrieve the password from the keyring for connections with UsePassword = true
+		password, err := keyring.Get(keyringService, conn.ID)
+		if err != nil {
+			log.Printf("Failed to retrieve password for connection ID %s: %v", conn.ID, err)
+			continue // Skip updating the password if there's an error
+		}
+		// Set the password for the connection
+		cm.Config.Connections[i].Password = password
+		log.Printf("Password successfully retrieved for connection ID: %s", conn.ID)
+	}
+	return cm.Config.Connections
+}
+
+// Load loads the SSH connections from the config file.
 func (cm *ConfigManager) Load() error {
 	data, err := os.ReadFile(cm.ConfigPath)
 	if err != nil {
@@ -58,6 +163,7 @@ func (cm *ConfigManager) Load() error {
 	return nil
 }
 
+// Save saves the SSH connections to the config file.
 func (cm *ConfigManager) Save() error {
 	data, err := json.MarshalIndent(cm.Config, "", "  ")
 	if err != nil {
@@ -69,50 +175,4 @@ func (cm *ConfigManager) Save() error {
 		return err
 	}
 	return nil
-}
-
-func (cm *ConfigManager) EditConnection(conn SSHConnection) error {
-	for i, existing := range cm.Config.Connections {
-		if existing.ID == conn.ID {
-			cm.Config.Connections[i] = conn
-			return cm.Save()
-		}
-	}
-	log.Printf("Connection with ID %s not found for edit", conn.ID)
-	return errors.New("connection with ID " + conn.ID + " not found")
-}
-
-func (cm *ConfigManager) AddConnection(conn SSHConnection) error {
-	for i, existing := range cm.Config.Connections {
-		if existing.ID == conn.ID {
-			cm.Config.Connections[i] = conn
-			return cm.Save()
-		}
-	}
-	cm.Config.Connections = append(cm.Config.Connections, conn)
-	return cm.Save()
-}
-
-func (cm *ConfigManager) DeleteConnection(id string) error {
-	for i, conn := range cm.Config.Connections {
-		if conn.ID == id {
-			cm.Config.Connections = slices.Delete(cm.Config.Connections, i, i+1)
-			return cm.Save()
-		}
-	}
-	log.Printf("Connection with ID %s not found for deletion", id)
-	return errors.New("connection with ID " + id + " not found")
-}
-
-func (cm *ConfigManager) GetConnection(id string) (SSHConnection, bool) {
-	for _, conn := range cm.Config.Connections {
-		if conn.ID == id {
-			return conn, true
-		}
-	}
-	return SSHConnection{}, false
-}
-
-func (cm *ConfigManager) ListConnections() []SSHConnection {
-	return cm.Config.Connections
 }

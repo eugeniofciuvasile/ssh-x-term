@@ -7,8 +7,11 @@ import (
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"github.com/eugeniofciuvasile/ssh-x-term/pkg/sshutil"
+	"github.com/zalando/go-keyring" // Import the keyring package
 	"golang.org/x/crypto/ssh"
 )
+
+const keyringService = "ssh-x-term" // Define the keyring service name for consistency
 
 // Client represents an SSH client connection
 type Client struct {
@@ -17,6 +20,16 @@ type Client struct {
 
 // NewClient creates a new SSH client from a connection configuration
 func NewClient(connConfig config.SSHConnection) (*Client, error) {
+	// If password-based authentication is enabled, retrieve the password from the keyring
+	if connConfig.UsePassword && connConfig.Password == "" {
+		password, err := keyring.Get(keyringService, connConfig.ID)
+		if err != nil {
+			log.Printf("Failed to retrieve password from keyring for connection ID %s: %v", connConfig.ID, err)
+			return nil, fmt.Errorf("failed to retrieve password: %w", err)
+		}
+		connConfig.Password = password // Populate the password in the connection configuration
+	}
+
 	// Set up auth method based on configuration
 	authMethod, err := sshutil.GetAuthMethod(connConfig.UsePassword, connConfig.Password, connConfig.KeyFile)
 	if err != nil {
