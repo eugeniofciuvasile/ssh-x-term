@@ -296,11 +296,6 @@ func (m *ConnectionForm) validateForm() (bool, string) {
 		}
 	}
 
-	// Check auth method
-	if m.usePassword && strings.TrimSpace(m.inputs[4].Value()) == "" {
-		return false, "Password is required for password authentication"
-	}
-
 	return true, ""
 }
 
