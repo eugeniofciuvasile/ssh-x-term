@@ -123,26 +123,8 @@ func (cm *ConfigManager) GetConnection(id string) (SSHConnection, bool) {
 	return SSHConnection{}, false
 }
 
-// ListConnections retrieves all SSH connections, including passwords fetched securely from the keyring.
-// Passwords are loaded only if connection.UsePassword is true.
+// ListConnections retrieves all SSH connections, excluding passwords for security.
 func (cm *ConfigManager) ListConnections() []SSHConnection {
-	for i, conn := range cm.Config.Connections {
-		// Skip loading the password if UsePassword is false
-		if !conn.UsePassword {
-			log.Printf("Skipping password retrieval for connection ID: %s because UsePassword is false", conn.ID)
-			continue
-		}
-
-		// Retrieve the password from the keyring for connections with UsePassword = true
-		password, err := keyring.Get(keyringService, conn.ID)
-		if err != nil {
-			log.Printf("Failed to retrieve password for connection ID %s: %v", conn.ID, err)
-			continue // Skip updating the password if there's an error
-		}
-		// Set the password for the connection
-		cm.Config.Connections[i].Password = password
-		log.Printf("Password successfully retrieved for connection ID: %s", conn.ID)
-	}
 	return cm.Config.Connections
 }
 

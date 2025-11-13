@@ -11,7 +11,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
+	"github.com/zalando/go-keyring"
 )
+
+const keyringService = "ssh-x-term" // Keyring service name
 
 func (m *Model) handleConnectionList(model tea.Model) tea.Cmd {
 	m.connectionList = model.(*components.ConnectionList)
@@ -22,6 +25,17 @@ func (m *Model) handleConnectionList(model tea.Model) tea.Cmd {
 }
 
 func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
+	if conn.UsePassword && conn.Password == "" {
+		// Retrieve the password from the keyring
+		password, err := keyring.Get(keyringService, conn.ID)
+		if err != nil {
+			m.errorMessage = fmt.Sprintf("Failed to retrieve password from keyring for connection ID %s: %s", conn.ID, err)
+			return nil
+		}
+		conn.Password = password // Set the password from the keyring
+		log.Printf("Password successfully retrieved for connection ID: %s", conn.ID)
+	}
+
 	openInNewWindow := m.connectionList.OpenInNewTerminal()
 	isWindows := runtime.GOOS == "windows"
 	keyPath, err := m.prepareKeyFileIfNeeded(conn)
