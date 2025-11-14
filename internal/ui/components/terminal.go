@@ -18,7 +18,6 @@ var (
 				Bold(true).
 				Background(lipgloss.Color("4")).
 				Foreground(lipgloss.Color("255")).
-				Width(100).
 				Align(lipgloss.Center).
 				Padding(0, 1)
 
@@ -26,7 +25,6 @@ var (
 				Bold(true).
 				Background(lipgloss.Color("8")).
 				Foreground(lipgloss.Color("255")).
-				Width(100).
 				Align(lipgloss.Center).
 				Padding(0, 1)
 
@@ -65,9 +63,8 @@ func startSessionCmd(connConfig config.SSHConnection, width, height int) tea.Cmd
 			height = 24
 		}
 
-		// Calculate terminal dimensions (leaving room for header/footer)
-		// Header and footer take 2 lines total
-		termHeight := height - 2
+		// Calculate terminal dimensions accounting for app and component overhead
+		termHeight := height - 10
 		if termHeight < 10 {
 			termHeight = 10
 		}
@@ -138,9 +135,14 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Resize virtual terminal
 		if t.vterm != nil {
-			// Header and footer each take 1 line, plus we need 2 newlines between them
-			// So total overhead is 2 lines (header + footer) and we keep content in between
-			termHeight := t.height - 2
+			// Account for app-level overhead:
+			// - Title + margins: ~3 lines
+			// - Help text + margins: ~3 lines  
+			// - App padding: ~2 lines
+			// Total app overhead: ~8 lines
+			// Plus terminal header and footer: 2 lines
+			// Total overhead: ~10 lines
+			termHeight := t.height - 10
 			if termHeight < 10 {
 				termHeight = 10
 			}
@@ -169,8 +171,8 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if width <= 0 {
 			width = 80 // Default width
 		}
-		// Header and footer take 2 lines total
-		termHeight := t.height - 2
+		// Account for app-level overhead (~8 lines) plus terminal header/footer (2 lines)
+		termHeight := t.height - 10
 		if termHeight < 10 {
 			termHeight = 10
 		}
@@ -421,7 +423,7 @@ func (t *TerminalComponent) View() string {
 		// Remove trailing newline if present to control spacing
 		content = strings.TrimRight(content, "\n")
 	} else {
-		content = strings.Repeat("\n", max(t.height-2, 0))
+		content = strings.Repeat("\n", max(t.height-10, 0))
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s", header, content, footer)
