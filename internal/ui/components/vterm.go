@@ -187,7 +187,7 @@ func (vt *VTerminal) isEscapeComplete() bool {
 		return false
 	}
 
-	// OSC sequences: ESC ] ... BEL or ESC \ 
+	// OSC sequences: ESC ] ... BEL or ESC \
 	if len(vt.escapeSeq) >= 2 && vt.escapeSeq[1] == ']' {
 		// OSC terminated by BEL (0x07)
 		if vt.escapeSeq[len(vt.escapeSeq)-1] == 0x07 {
