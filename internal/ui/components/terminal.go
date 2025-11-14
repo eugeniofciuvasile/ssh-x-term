@@ -18,6 +18,7 @@ var (
 				Bold(true).
 				Background(lipgloss.Color("4")).
 				Foreground(lipgloss.Color("255")).
+				Width(100).
 				Align(lipgloss.Center).
 				Padding(0, 1)
 
@@ -25,6 +26,7 @@ var (
 				Bold(true).
 				Background(lipgloss.Color("8")).
 				Foreground(lipgloss.Color("255")).
+				Width(100).
 				Align(lipgloss.Center).
 				Padding(0, 1)
 
@@ -63,8 +65,12 @@ func startSessionCmd(connConfig config.SSHConnection, width, height int) tea.Cmd
 			height = 24
 		}
 
-		// Use all available height minus terminal's own header and footer
-		termHeight := max(height-2, 10)
+		// Calculate terminal dimensions (leaving room for header/footer)
+		// Header and footer take 2 lines total
+		termHeight := height - 2
+		if termHeight < 10 {
+			termHeight = 10
+		}
 
 		session, err := ssh.NewBubbleTeaSession(connConfig, width, termHeight)
 		if err != nil {
@@ -129,8 +135,22 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width
 		t.height = msg.Height
-		// Don't resize vterm here - it will be resized dynamically in View()
-		// based on actual rendered header/footer heights
+
+		// Resize virtual terminal
+		if t.vterm != nil {
+			// Header and footer each take 1 line, plus we need 2 newlines between them
+			// So total overhead is 2 lines (header + footer) and we keep content in between
+			termHeight := t.height - 2
+			if termHeight < 10 {
+				termHeight = 10
+			}
+			t.vterm.Resize(t.width, termHeight)
+
+			// Resize SSH session
+			if t.session != nil {
+				t.session.Resize(t.width, termHeight)
+			}
+		}
 		return t, nil
 
 	case SSHSessionMsg:
@@ -149,8 +169,11 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if width <= 0 {
 			width = 80 // Default width
 		}
-		// Start with a reasonable height - will be adjusted in View()
-		termHeight := max(t.height-2, 10)
+		// Header and footer take 2 lines total
+		termHeight := t.height - 2
+		if termHeight < 10 {
+			termHeight = 10
+		}
 
 		log.Printf("Creating VTerminal with width=%d, height=%d (window: %dx%d)", width, termHeight, t.width, t.height)
 		t.vterm = NewVTerminal(width, termHeight)
@@ -303,14 +326,13 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return t, nil
 			case tea.MouseButtonLeft:
 				// Start selection on press
-				switch msg.Action {
-				case tea.MouseActionPress:
+				if msg.Action == tea.MouseActionPress {
 					// Adjust Y coordinate for header (subtract 1 for header line)
 					adjustedY := msg.Y - 1
 					if adjustedY >= 0 {
 						t.vterm.StartSelection(msg.X, adjustedY)
 					}
-				case tea.MouseActionRelease:
+				} else if msg.Action == tea.MouseActionRelease {
 					// Try to copy selection on release
 					if t.vterm.HasSelection() {
 						if err := t.vterm.CopySelection(); err != nil {
@@ -393,28 +415,13 @@ func (t *TerminalComponent) View() string {
 
 	footer := terminalFooterStyle.Width(t.width).Render(statusText)
 
-	// Calculate actual heights of header and footer after rendering
-	headerHeight := lipgloss.Height(header)
-	footerHeight := lipgloss.Height(footer)
-
-	// Calculate available space for content
-	contentHeight := t.height - headerHeight - footerHeight
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
-
 	var content string
 	if t.vterm != nil {
-		// Resize vterm to match available content space
-		t.vterm.Resize(t.width, contentHeight)
-		if t.session != nil {
-			t.session.Resize(t.width, contentHeight)
-		}
 		content = t.vterm.Render()
 		// Remove trailing newline if present to control spacing
 		content = strings.TrimRight(content, "\n")
 	} else {
-		content = strings.Repeat("\n", max(contentHeight-1, 0))
+		content = strings.Repeat("\n", max(t.height-2, 0))
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s", header, content, footer)
@@ -431,7 +438,10 @@ func centeredBox(content string, width, height int) string {
 
 	// Calculate vertical padding
 	contentHeight := len(lines)
-	topPadding := max((height-contentHeight)/2, 0)
+	topPadding := (height - contentHeight) / 2
+	if topPadding < 0 {
+		topPadding = 0
+	}
 
 	// Add padding
 	var result strings.Builder
@@ -441,7 +451,10 @@ func centeredBox(content string, width, height int) string {
 	for _, line := range lines {
 		// Calculate horizontal padding for this line
 		lineLength := len(line)
-		leftPadding := max((width-lineLength)/2, 0)
+		leftPadding := (width - lineLength) / 2
+		if leftPadding < 0 {
+			leftPadding = 0
+		}
 
 		result.WriteString(strings.Repeat(" ", leftPadding))
 		result.WriteString(line)
@@ -449,4 +462,11 @@ func centeredBox(content string, width, height int) string {
 	}
 
 	return result.String()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
