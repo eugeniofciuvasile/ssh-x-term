@@ -7,11 +7,38 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ssh"
 	"github.com/hinshun/vt10x"
+)
+
+var (
+	terminalHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Background(lipgloss.Color("4")).
+				Foreground(lipgloss.Color("255")).
+				Width(100).
+				Align(lipgloss.Center).
+				Padding(0, 1)
+
+	terminalFooterStyle = lipgloss.NewStyle().
+				Bold(true).
+				Background(lipgloss.Color("8")).
+				Foreground(lipgloss.Color("255")).
+				Width(100).
+				Align(lipgloss.Center).
+				Padding(0, 1)
+
+	terminalErrorStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("9")).
+				Width(100).
+				Align(lipgloss.Center).
+				Padding(1, 0)
 )
 
 // TerminalOutputMsg is sent when there's new terminal output
@@ -106,10 +133,12 @@ func (t *PTYTerminalComponent) startOutputReader() tea.Cmd {
 // pollOutput creates a command that continuously checks for terminal output
 func (t *PTYTerminalComponent) pollOutput() tea.Cmd {
 	return func() tea.Msg {
+		// Use a small delay to avoid busy-waiting
 		select {
 		case <-t.done:
 			return nil
 		default:
+			// Return a message to trigger re-render
 			return TerminalOutputMsg{}
 		}
 	}
@@ -177,8 +206,11 @@ func (t *PTYTerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TerminalOutputMsg:
 		if t.started && !t.escapePressed {
-			// Continue polling for output
-			return t, t.pollOutput()
+			// Continue polling for output updates
+			// We need to throttle this to avoid excessive CPU usage
+			return t, tea.Tick(16*time.Millisecond, func(time.Time) tea.Msg {
+				return TerminalOutputMsg{}
+			})
 		}
 		return t, nil
 
@@ -391,4 +423,43 @@ func (t *PTYTerminalComponent) renderTerminalContent() string {
 // IsFinished returns whether the terminal session is finished
 func (t *PTYTerminalComponent) IsFinished() bool {
 	return t.escapePressed
+}
+
+// centeredBox creates a centered box with the given content
+func centeredBox(content string, width, height int) string {
+	lines := strings.Split(content, "\n")
+
+	// Calculate vertical padding
+	contentHeight := len(lines)
+	topPadding := (height - contentHeight) / 2
+	if topPadding < 0 {
+		topPadding = 0
+	}
+
+	// Add padding
+	var result strings.Builder
+	result.WriteString(strings.Repeat("\n", topPadding))
+
+	// Add each line centered
+	for _, line := range lines {
+		// Calculate horizontal padding for this line
+		lineLength := len(line)
+		leftPadding := (width - lineLength) / 2
+		if leftPadding < 0 {
+			leftPadding = 0
+		}
+
+		result.WriteString(strings.Repeat(" ", leftPadding))
+		result.WriteString(line)
+		result.WriteString("\n")
+	}
+
+	return result.String()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
