@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/atotto/clipboard"
 )
 
 // VTerminal represents a virtual terminal emulator that can render ANSI/VT100 sequences
@@ -24,6 +26,14 @@ type VTerminal struct {
 	escapeSeq      []byte
 	attrs          cellAttrs
 	defaultAttrs   cellAttrs
+	// Mouse selection support
+	selectionStart *position
+	selectionEnd   *position
+}
+
+type position struct {
+	x int
+	y int
 }
 
 type cellAttrs struct {
@@ -532,4 +542,93 @@ func (vt *VTerminal) Clear() {
 	vt.cursorX = 0
 	vt.cursorY = 0
 	vt.scrollOffset = 0
+}
+
+// StartSelection begins a text selection at the given position
+func (vt *VTerminal) StartSelection(x, y int) {
+	vt.mutex.Lock()
+	defer vt.mutex.Unlock()
+	vt.selectionStart = &position{x: x, y: y}
+	vt.selectionEnd = nil
+}
+
+// UpdateSelection updates the selection end position
+func (vt *VTerminal) UpdateSelection(x, y int) {
+	vt.mutex.Lock()
+	defer vt.mutex.Unlock()
+	if vt.selectionStart != nil {
+		vt.selectionEnd = &position{x: x, y: y}
+	}
+}
+
+// ClearSelection clears the current selection
+func (vt *VTerminal) ClearSelection() {
+	vt.mutex.Lock()
+	defer vt.mutex.Unlock()
+	vt.selectionStart = nil
+	vt.selectionEnd = nil
+}
+
+// CopySelection copies the selected text to the clipboard
+func (vt *VTerminal) CopySelection() error {
+	vt.mutex.RLock()
+	defer vt.mutex.RUnlock()
+
+	if vt.selectionStart == nil || vt.selectionEnd == nil {
+		return fmt.Errorf("no selection")
+	}
+
+	// Normalize selection (ensure start is before end)
+	startY, startX := vt.selectionStart.y, vt.selectionStart.x
+	endY, endX := vt.selectionEnd.y, vt.selectionEnd.x
+
+	if startY > endY || (startY == endY && startX > endX) {
+		startY, endY = endY, startY
+		startX, endX = endX, startX
+	}
+
+	var text strings.Builder
+
+	// Single line selection
+	if startY == endY {
+		if startY < len(vt.buffer) {
+			for x := startX; x <= endX && x < len(vt.buffer[startY]); x++ {
+				text.WriteRune(vt.buffer[startY][x])
+			}
+		}
+	} else {
+		// Multi-line selection
+		// First line
+		if startY < len(vt.buffer) {
+			for x := startX; x < len(vt.buffer[startY]); x++ {
+				text.WriteRune(vt.buffer[startY][x])
+			}
+			text.WriteRune('\n')
+		}
+
+		// Middle lines
+		for y := startY + 1; y < endY && y < len(vt.buffer); y++ {
+			for x := 0; x < len(vt.buffer[y]); x++ {
+				text.WriteRune(vt.buffer[y][x])
+			}
+			text.WriteRune('\n')
+		}
+
+		// Last line
+		if endY < len(vt.buffer) {
+			for x := 0; x <= endX && x < len(vt.buffer[endY]); x++ {
+				text.WriteRune(vt.buffer[endY][x])
+			}
+		}
+	}
+
+	selectedText := strings.TrimRight(text.String(), " \n")
+	return clipboard.WriteAll(selectedText)
+}
+
+// HasSelection returns true if there is an active selection
+func (vt *VTerminal) HasSelection() bool {
+	vt.mutex.RLock()
+	defer vt.mutex.RUnlock()
+	return vt.selectionStart != nil && vt.selectionEnd != nil
 }
