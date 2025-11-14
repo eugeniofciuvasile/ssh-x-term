@@ -2,6 +2,8 @@ package components
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"strings"
 	"sync"
 
@@ -36,16 +38,32 @@ var (
 				Padding(1, 0)
 )
 
+// SSHOutputMsg contains output from the SSH session
+type SSHOutputMsg struct {
+	Data []byte
+}
+
+// SSHErrorMsg contains an error from the SSH session
+type SSHErrorMsg struct {
+	Err error
+}
+
 // SSHSessionMsg is a message containing an SSH session
 type SSHSessionMsg struct {
-	Session *ssh.Session
+	Session *ssh.BubbleTeaSession
 	Error   error
 }
 
 // startSessionCmd starts an SSH session and returns a message with the result
-func startSessionCmd(connConfig config.SSHConnection) tea.Cmd {
+func startSessionCmd(connConfig config.SSHConnection, width, height int) tea.Cmd {
 	return func() tea.Msg {
-		session, err := ssh.NewSession(connConfig)
+		// Calculate terminal dimensions (leaving room for header/footer)
+		termHeight := height - 4
+		if termHeight < 10 {
+			termHeight = 10
+		}
+
+		session, err := ssh.NewBubbleTeaSession(connConfig, width, termHeight)
 		if err != nil {
 			return SSHSessionMsg{nil, err}
 		}
@@ -53,17 +71,37 @@ func startSessionCmd(connConfig config.SSHConnection) tea.Cmd {
 	}
 }
 
+// listenForOutput listens for output from the SSH session
+func listenForOutput(session *ssh.BubbleTeaSession) tea.Cmd {
+	return func() tea.Msg {
+		buf := make([]byte, 32*1024)
+		n, err := session.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				return SSHErrorMsg{fmt.Errorf("session closed")}
+			}
+			return SSHErrorMsg{err}
+		}
+		if n > 0 {
+			return SSHOutputMsg{Data: buf[:n]}
+		}
+		return nil
+	}
+}
+
 // TerminalComponent represents a terminal component for SSH sessions
 type TerminalComponent struct {
 	connection    config.SSHConnection
-	session       *ssh.Session
+	session       *ssh.BubbleTeaSession
+	vterm         *VTerminal
 	status        string
 	error         error
 	loading       bool
 	width         int
 	height        int
-	escapePressed bool
+	finished      bool
 	mutex         sync.Mutex
+	sessionClosed bool
 }
 
 // NewTerminalComponent creates a new terminal component
@@ -77,18 +115,29 @@ func NewTerminalComponent(conn config.SSHConnection) *TerminalComponent {
 
 // Init initializes the component
 func (t *TerminalComponent) Init() tea.Cmd {
-	return startSessionCmd(t.connection)
+	return startSessionCmd(t.connection, t.width, t.height)
 }
 
 // Update handles component updates
 func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width
 		t.height = msg.Height
+
+		// Resize virtual terminal
+		if t.vterm != nil {
+			termHeight := t.height - 4
+			if termHeight < 10 {
+				termHeight = 10
+			}
+			t.vterm.Resize(t.width, termHeight)
+
+			// Resize SSH session
+			if t.session != nil {
+				t.session.Resize(t.width, termHeight)
+			}
+		}
 		return t, nil
 
 	case SSHSessionMsg:
@@ -101,28 +150,133 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.session = msg.Session
 		t.status = "Connected"
 
-		// Start the session in a goroutine
-		go func() {
-			err := t.session.Start()
-			if err != nil {
-				t.mutex.Lock()
-				t.error = err
-				t.status = fmt.Sprintf("Error: %s", err)
-				t.mutex.Unlock()
-			}
-		}()
+		// Create virtual terminal
+		termHeight := t.height - 4
+		if termHeight < 10 {
+			termHeight = 10
+		}
+		t.vterm = NewVTerminal(t.width, termHeight)
 
+		// Start the session
+		if err := t.session.Start(); err != nil {
+			t.error = err
+			t.status = fmt.Sprintf("Error: %s", err)
+			return t, nil
+		}
+
+		// Start listening for output
+		return t, listenForOutput(t.session)
+
+	case SSHOutputMsg:
+		if t.vterm != nil && msg.Data != nil {
+			// Write data to virtual terminal
+			t.vterm.Write(msg.Data)
+
+			// Automatically scroll to bottom when new data arrives (unless manually scrolled)
+			if !t.vterm.IsScrolledBack() {
+				t.vterm.ScrollToBottom()
+			}
+		}
+
+		// Continue listening
+		return t, listenForOutput(t.session)
+
+	case SSHErrorMsg:
+		t.mutex.Lock()
+		t.sessionClosed = true
+		t.mutex.Unlock()
+
+		if msg.Err != nil && msg.Err.Error() != "session closed" {
+			t.error = msg.Err
+			t.status = fmt.Sprintf("Error: %s", msg.Err)
+		}
 		return t, nil
 
 	case tea.KeyMsg:
+		// Handle escape to exit
 		if msg.String() == "esc" {
-			t.escapePressed = true
-			// Close the session
+			t.finished = true
 			if t.session != nil {
 				t.session.Close()
 			}
 			return t, nil
 		}
+
+		// Handle scrolling
+		if t.vterm != nil {
+			switch msg.String() {
+			case "pgup", "shift+up":
+				t.vterm.ScrollUp(10)
+				return t, nil
+			case "pgdown", "shift+down":
+				t.vterm.ScrollDown(10)
+				return t, nil
+			case "ctrl+home":
+				// Scroll to top
+				t.vterm.ScrollUp(100000)
+				return t, nil
+			case "ctrl+end":
+				// Scroll to bottom
+				t.vterm.ScrollToBottom()
+				return t, nil
+			}
+		}
+
+		// Handle CTRL+D - send EOF
+		if msg.String() == "ctrl+d" {
+			if t.session != nil {
+				// Send EOT (End of Transmission)
+				t.session.Write([]byte{4})
+			}
+			return t, nil
+		}
+
+		// Forward all other key presses to SSH session
+		if t.session != nil && !t.sessionClosed {
+			data := []byte(msg.String())
+
+			// Handle special keys
+			switch msg.String() {
+			case "enter":
+				data = []byte{'\r'}
+			case "backspace", "delete":
+				data = []byte{127}
+			case "tab":
+				data = []byte{'\t'}
+			case "up":
+				data = []byte{27, '[', 'A'}
+			case "down":
+				data = []byte{27, '[', 'B'}
+			case "right":
+				data = []byte{27, '[', 'C'}
+			case "left":
+				data = []byte{27, '[', 'D'}
+			case "home":
+				data = []byte{27, '[', 'H'}
+			case "end":
+				data = []byte{27, '[', 'F'}
+			}
+
+			if _, err := t.session.Write(data); err != nil {
+				log.Printf("Error writing to SSH session: %v", err)
+			}
+		}
+
+		return t, nil
+
+	case tea.MouseMsg:
+		// Handle mouse wheel scrolling
+		if t.vterm != nil {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				t.vterm.ScrollUp(3)
+				return t, nil
+			case tea.MouseButtonWheelDown:
+				t.vterm.ScrollDown(3)
+				return t, nil
+			}
+		}
+		return t, nil
 	}
 
 	return t, nil
@@ -130,7 +284,7 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the component
 func (t *TerminalComponent) View() string {
-	if t.escapePressed {
+	if t.finished {
 		return ""
 	}
 
@@ -157,27 +311,42 @@ func (t *TerminalComponent) View() string {
 		)
 	}
 
-	// When connected, we don't actually render anything here
-	// The SSH session takes over the terminal
+	// Render the terminal
 	header := terminalHeaderStyle.Width(t.width).Render(
-		fmt.Sprintf("Connected to %s@%s:%d",
+		fmt.Sprintf("SSH: %s@%s:%d - %s",
 			t.connection.Username,
 			t.connection.Host,
-			t.connection.Port),
+			t.connection.Port,
+			t.connection.Name),
 	)
+
+	scrollIndicator := ""
+	if t.vterm != nil && t.vterm.IsScrolledBack() {
+		scrollIndicator = " [SCROLLBACK MODE]"
+	}
+
+	statusText := "ESC: Disconnect | CTRL+D: EOF | PgUp/PgDn: Scroll"
+	if t.sessionClosed {
+		statusText = "Session closed - Press ESC to return"
+	}
 
 	footer := terminalFooterStyle.Width(t.width).Render(
-		"Press ESC to disconnect",
+		statusText + scrollIndicator,
 	)
 
-	content := strings.Repeat("\n", max(t.height-4, 0))
+	var content string
+	if t.vterm != nil {
+		content = t.vterm.Render()
+	} else {
+		content = strings.Repeat("\n", max(t.height-4, 0))
+	}
 
-	return fmt.Sprintf("%s\n%s\n%s", header, content, footer)
+	return fmt.Sprintf("%s\n%s%s", header, content, footer)
 }
 
 // IsFinished returns whether the terminal session is finished
 func (t *TerminalComponent) IsFinished() bool {
-	return t.escapePressed
+	return t.finished
 }
 
 // centeredBox creates a centered box with the given content
