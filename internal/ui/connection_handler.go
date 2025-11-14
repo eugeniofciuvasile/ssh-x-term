@@ -53,7 +53,7 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 			m.connectionList.Reset()
 			return nil
 		}
-		m.terminal = components.NewTerminalComponent(*conn)
+		m.terminal = components.NewPTYTerminalComponent(*conn)
 		m.state = StateSSHTerminal
 		m.connectionList.Reset()
 		return m.terminal.Init()
@@ -65,7 +65,7 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 		m.connectionList.Reset()
 		return nil
 	}
-	m.terminal = components.NewTerminalComponent(*conn)
+	m.terminal = components.NewPTYTerminalComponent(*conn)
 	m.state = StateSSHTerminal
 	m.connectionList.Reset()
 	return m.terminal.Init()

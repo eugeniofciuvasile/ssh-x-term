@@ -86,7 +86,7 @@ type Model struct {
 	height                    int
 	connectionList            *components.ConnectionList
 	connectionForm            *components.ConnectionForm
-	terminal                  *components.TerminalComponent
+	terminal                  *components.PTYTerminalComponent
 	bitwardenForm             *components.BitwardenConfigForm
 	errorMessage              string
 	bitwardenLoginForm        *components.BitwardenLoginForm
@@ -472,7 +472,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			)
 		}
 	case StateSSHTerminal:
-		m.terminal = model.(*components.TerminalComponent)
+		m.terminal = model.(*components.PTYTerminalComponent)
 		if m.terminal.IsFinished() {
 			m.terminal = nil
 			m.state = StateConnectionList
