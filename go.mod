@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.5
+	github.com/hinshun/vt10x v0.0.0-20220301184237-5011da428d02
 	golang.org/x/crypto v0.38.0
 )
 
@@ -12,7 +13,6 @@ require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
-	github.com/hinshun/vt10x v0.0.0-20220301184237-5011da428d02 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 )
 

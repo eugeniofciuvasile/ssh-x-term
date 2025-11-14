@@ -22,13 +22,15 @@ Cross-platform features include support for passh (Unix), plink.exe (Windows), a
 ## Features
 
 - Manage SSH connections in an interactive Bubble Tea TUI.
+- **Integrated PTY terminal emulator** with full ANSI/VT100 support within Bubble Tea.
 - **Dual credential storage modes:**
   - **Local storage** with go-keyring (system keyring integration)
   - **Bitwarden vault** storage via Bitwarden CLI
 - Secure credential storage: passwords never stored in plaintext.
 - Password-based SSH login automation using passh (Unix) or plink.exe (Windows).
 - Key-based SSH authentication.
-- Open connections in new tmux windows or current terminal.
+- Open connections in new tmux windows or current terminal with integrated PTY.
+- Proper terminal emulation with mouse support foundation.
 - Fullscreen and responsive TUI.
 
 ## Project Structure
@@ -47,6 +49,8 @@ ssh-x-term/
 │   │   └── storage.go                            # Storage interface definition
 │   ├── ssh/
 │   │   ├── client.go                             # SSH client implementation
+│   │   ├── pty_session_unix.go                   # PTY SSH session (Unix/Darwin)
+│   │   ├── pty_session_windows.go                # PTY SSH session (Windows)
 │   │   ├── session_unix.go                       # SSH session management (Unix)
 │   │   └── session_windows.go                    # SSH session management (Windows)
 │   └── ui/
@@ -58,8 +62,8 @@ ssh-x-term/
 │       │   ├── bitwarden_unlock_form.go          # Bitwarden unlock form component
 │       │   ├── connection_list.go                # List of SSH connections
 │       │   ├── form.go                           # Form for adding/editing connections
-│       │   ├── storage_select.go                 # Credential storage selection (Local/Bitwarden)
-│       │   └── terminal.go                       # Terminal component for SSH sessions
+│       │   ├── pty_terminal.go                   # Integrated PTY terminal with vt10x emulator
+│       │   └── storage_select.go                 # Credential storage selection (Local/Bitwarden)
 │       ├── connection_handler.go                 # Connection lifecycle management
 │       ├── model.go                              # Main UI model and state
 │       ├── update.go                             # Update logic for UI events
@@ -228,6 +232,10 @@ sxt
 
 5. **SSH Session:**
     - `Esc` to disconnect.
+    - Full terminal emulation with ANSI/VT100 support via integrated PTY.
+    - Terminal stays within Bubble Tea's TUI (no raw terminal takeover).
+    - Supports colors, formatting, and proper terminal behavior.
+    - Foundation for mouse support (scroll, selection, copy/paste).
     - Passwords are supplied securely via passh or plink.exe (never echoed or stored in plaintext).
 
 ## Configuration
@@ -258,6 +266,19 @@ SSH-X-Term supports two credential storage modes:
 - **SSH Authentication**: Passwords are supplied securely via subprocesses (`passh`, `plink.exe`) and never echoed or logged
 - **No plaintext passwords**: Passwords are **never** written to disk in plaintext (not in config files or logs)
 
+## PTY Terminal Integration
+
+SSH-X-Term now features an integrated PTY (pseudo-terminal) emulator within Bubble Tea:
+
+- **Full VT100/ANSI Support**: Proper terminal emulation with colors, formatting, and escape sequences
+- **Stays in TUI**: Terminal renders within Bubble Tea's alt screen (no raw terminal takeover)
+- **Cross-Platform**: Works on Unix/Darwin/Windows with platform-specific implementations
+- **Mouse Support Foundation**: Architecture ready for mouse scroll, selection, and copy/paste
+- **60fps Updates**: Smooth terminal rendering with efficient screen buffer updates
+- **Terminal Emulator**: Uses [vt10x](https://github.com/hinshun/vt10x) for VT100 terminal emulation
+
+For technical details, see [PTY_TERMINAL_INTEGRATION.md](PTY_TERMINAL_INTEGRATION.md).
+
 ## License
 
 [MIT](LICENSE)
@@ -278,6 +299,7 @@ For details, see the [MIT License](LICENSE).
 
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) — Terminal UI framework
 - [go-keyring](https://github.com/zalando/go-keyring) — Secure system keyring integration
+- [vt10x](https://github.com/hinshun/vt10x) — VT100 terminal emulator for proper ANSI support
 - [Bitwarden CLI](https://bitwarden.com/help/cli/) — Bitwarden vault management
 - [passh](https://github.com/clarkwang/passh) — Password-based SSH automation (Unix)
 - [PuTTY/plink.exe](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html) — Password-based SSH automation (Windows)
