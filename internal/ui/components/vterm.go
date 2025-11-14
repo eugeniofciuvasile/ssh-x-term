@@ -52,7 +52,7 @@ func NewVTerminal(width, height int) *VTerminal {
 	if height < 1 {
 		height = 24
 	}
-	
+
 	vt := &VTerminal{
 		width:         width,
 		height:        height,

@@ -64,7 +64,7 @@ func startSessionCmd(connConfig config.SSHConnection, width, height int) tea.Cmd
 		if height <= 0 {
 			height = 24
 		}
-		
+
 		// Calculate terminal dimensions (leaving room for header/footer)
 		termHeight := height - 4
 		if termHeight < 10 {
@@ -170,7 +170,7 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if termHeight < 10 {
 			termHeight = 10
 		}
-		
+
 		log.Printf("Creating VTerminal with width=%d, height=%d (window: %dx%d)", width, termHeight, t.width, t.height)
 		t.vterm = NewVTerminal(width, termHeight)
 
@@ -188,7 +188,7 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if t.vterm != nil && msg.Data != nil && len(msg.Data) > 0 {
 			// Write data to virtual terminal
 			t.vterm.Write(msg.Data)
-			
+
 			// Log for debugging
 			log.Printf("Received %d bytes from SSH, wrote to vterm", len(msg.Data))
 
