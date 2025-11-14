@@ -102,3 +102,40 @@ func TestVTerminalClearScreen(t *testing.T) {
 		t.Errorf("Expected empty output after clear, got: %q", nonWhitespace)
 	}
 }
+
+func TestVTerminalRenderOutput(t *testing.T) {
+	vt := NewVTerminal(80, 24)
+
+	// Write a simple prompt
+	vt.Write([]byte("user@host:~$ "))
+
+	output := vt.Render()
+	if !strings.Contains(output, "user@host:~$") {
+		t.Errorf("Expected output to contain prompt, got: %s", output)
+	}
+
+	// Write a command and newline
+	vt.Write([]byte("ls -la\r\n"))
+
+	output = vt.Render()
+	if !strings.Contains(output, "ls -la") {
+		t.Errorf("Expected output to contain command, got: %s", output)
+	}
+}
+
+func TestVTerminalMinimumDimensions(t *testing.T) {
+	// Test that zero dimensions are handled
+	vt := NewVTerminal(0, 0)
+
+	if vt.width < 1 || vt.height < 1 {
+		t.Errorf("Expected minimum dimensions, got width=%d, height=%d", vt.width, vt.height)
+	}
+
+	// Should be able to write without panic
+	vt.Write([]byte("Test"))
+
+	output := vt.Render()
+	if !strings.Contains(output, "Test") {
+		t.Errorf("Expected output to contain 'Test', got: %s", output)
+	}
+}
