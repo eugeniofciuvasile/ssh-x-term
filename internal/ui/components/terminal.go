@@ -66,7 +66,8 @@ func startSessionCmd(connConfig config.SSHConnection, width, height int) tea.Cmd
 		}
 
 		// Calculate terminal dimensions (leaving room for header/footer)
-		termHeight := height - 4
+		// Header and footer take 2 lines total
+		termHeight := height - 2
 		if termHeight < 10 {
 			termHeight = 10
 		}
@@ -137,7 +138,9 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Resize virtual terminal
 		if t.vterm != nil {
-			termHeight := t.height - 4
+			// Header and footer each take 1 line, plus we need 2 newlines between them
+			// So total overhead is 2 lines (header + footer) and we keep content in between
+			termHeight := t.height - 2
 			if termHeight < 10 {
 				termHeight = 10
 			}
@@ -166,7 +169,8 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if width <= 0 {
 			width = 80 // Default width
 		}
-		termHeight := t.height - 4
+		// Header and footer take 2 lines total
+		termHeight := t.height - 2
 		if termHeight < 10 {
 			termHeight = 10
 		}
@@ -417,7 +421,7 @@ func (t *TerminalComponent) View() string {
 		// Remove trailing newline if present to control spacing
 		content = strings.TrimRight(content, "\n")
 	} else {
-		content = strings.Repeat("\n", max(t.height-4, 0))
+		content = strings.Repeat("\n", max(t.height-2, 0))
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s", header, content, footer)

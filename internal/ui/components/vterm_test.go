@@ -139,3 +139,29 @@ func TestVTerminalMinimumDimensions(t *testing.T) {
 		t.Errorf("Expected output to contain 'Test', got: %s", output)
 	}
 }
+
+func TestVTerminalOSCSequences(t *testing.T) {
+	vt := NewVTerminal(80, 24)
+
+	// Write a prompt
+	vt.Write([]byte("user@host:~$ "))
+
+	// Write an OSC sequence (e.g., setting window title) followed by text
+	// This simulates what bash does with PS1 that includes title setting
+	vt.Write([]byte("\x1B]0;user@host:~\x07"))
+	vt.Write([]byte("ls\r\n"))
+
+	output := vt.Render()
+
+	// The OSC sequence should be ignored, we should only see the prompt and command
+	if !strings.Contains(output, "user@host:~$") {
+		t.Errorf("Expected prompt in output")
+	}
+	if !strings.Contains(output, "ls") {
+		t.Errorf("Expected 'ls' command in output")
+	}
+	// The OSC content should NOT appear
+	if strings.Contains(output, "0;user@host:~") {
+		t.Errorf("OSC sequence content should not appear in output, got: %s", output)
+	}
+}

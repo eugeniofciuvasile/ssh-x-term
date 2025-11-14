@@ -187,6 +187,25 @@ func (vt *VTerminal) isEscapeComplete() bool {
 		return false
 	}
 
+	// OSC sequences: ESC ] ... BEL or ESC \ 
+	if len(vt.escapeSeq) >= 2 && vt.escapeSeq[1] == ']' {
+		// OSC terminated by BEL (0x07)
+		if vt.escapeSeq[len(vt.escapeSeq)-1] == 0x07 {
+			return true
+		}
+		// OSC terminated by ST (ESC \)
+		if len(vt.escapeSeq) >= 2 {
+			if vt.escapeSeq[len(vt.escapeSeq)-2] == 0x1B && vt.escapeSeq[len(vt.escapeSeq)-1] == '\\' {
+				return true
+			}
+		}
+		// Prevent infinite growth
+		if len(vt.escapeSeq) > 1000 {
+			return true
+		}
+		return false
+	}
+
 	// CSI sequences: ESC [ ... [a-zA-Z]
 	if len(vt.escapeSeq) >= 2 && vt.escapeSeq[1] == '[' {
 		lastByte := vt.escapeSeq[len(vt.escapeSeq)-1]
@@ -207,6 +226,12 @@ func (vt *VTerminal) isEscapeComplete() bool {
 
 func (vt *VTerminal) handleEscapeSequence() {
 	if len(vt.escapeSeq) < 2 {
+		return
+	}
+
+	// OSC sequences - just ignore them (e.g., window title changes)
+	if vt.escapeSeq[1] == ']' {
+		// Silently ignore OSC sequences
 		return
 	}
 
