@@ -161,6 +161,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if activeComponent := m.getActiveComponent(); activeComponent != nil {
+			// For terminal state, calculate available space after app UI overhead
+			if m.state == StateSSHTerminal {
+				// Calculate overhead:
+				// - Title with margin: 2 lines
+				// - App padding: 2 lines (top + bottom)
+				// - Help text with margins: 2 lines
+				// Total: 6 lines
+				adjustedHeight := msg.Height - 6
+				if adjustedHeight < 14 { // Minimum: 10 for content + 2 for terminal header/footer + 2 buffer
+					adjustedHeight = 14
+				}
+				adjustedMsg := tea.WindowSizeMsg{
+					Width:  msg.Width,
+					Height: adjustedHeight,
+				}
+				model, cmd := activeComponent.Update(adjustedMsg)
+				return m, m.handleComponentResult(model, cmd)
+			}
 			model, cmd := activeComponent.Update(msg)
 			return m, m.handleComponentResult(model, cmd)
 		}

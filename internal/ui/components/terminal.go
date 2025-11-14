@@ -63,8 +63,8 @@ func startSessionCmd(connConfig config.SSHConnection, width, height int) tea.Cmd
 			height = 24
 		}
 
-		// Calculate terminal dimensions accounting for app and component overhead
-		termHeight := height - 10
+		// Use all available height minus terminal's own header and footer
+		termHeight := height - 2
 		if termHeight < 10 {
 			termHeight = 10
 		}
@@ -135,14 +135,8 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Resize virtual terminal
 		if t.vterm != nil {
-			// Account for app-level overhead:
-			// - Title + margins: ~3 lines
-			// - Help text + margins: ~3 lines  
-			// - App padding: ~2 lines
-			// Total app overhead: ~8 lines
-			// Plus terminal header and footer: 2 lines
-			// Total overhead: ~10 lines
-			termHeight := t.height - 10
+			// Use all available height for content, only subtracting terminal's own header and footer
+			termHeight := t.height - 2
 			if termHeight < 10 {
 				termHeight = 10
 			}
@@ -171,8 +165,8 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if width <= 0 {
 			width = 80 // Default width
 		}
-		// Account for app-level overhead (~8 lines) plus terminal header/footer (2 lines)
-		termHeight := t.height - 10
+		// Use all available height minus terminal's own header and footer
+		termHeight := t.height - 2
 		if termHeight < 10 {
 			termHeight = 10
 		}
@@ -423,7 +417,7 @@ func (t *TerminalComponent) View() string {
 		// Remove trailing newline if present to control spacing
 		content = strings.TrimRight(content, "\n")
 	} else {
-		content = strings.Repeat("\n", max(t.height-10, 0))
+		content = strings.Repeat("\n", max(t.height-2, 0))
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s", header, content, footer)
