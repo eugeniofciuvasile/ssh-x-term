@@ -130,7 +130,63 @@ flowchart TD
 | StateConnectionList       | ConnectionList                | SSH connections list |
 | StateAddConnection        | ConnectionForm                | Add new SSH connection |
 | StateEditConnection       | ConnectionForm                | Edit existing SSH connection |
-| StateSSHTerminal          | TerminalComponent             | Interactive SSH terminal |
+| StateSSHTerminal          | TerminalComponent             | Interactive SSH terminal with VT100 emulation |
+
+---
+
+## Terminal Emulation Architecture
+
+The SSH terminal is fully integrated within Bubble Tea using a custom virtual terminal emulator:
+
+### Components
+
+1. **VTerminal** (`internal/ui/components/vterm.go`)
+   - Virtual terminal emulator with VT100/ANSI escape sequence parsing
+   - Maintains display buffer and scrollback buffer (10,000 lines)
+   - Handles cursor positioning, colors, and terminal control sequences
+   - Supports text selection and clipboard operations
+
+2. **BubbleTeaSession** (`internal/ssh/session_bubbletea_unix.go`, `session_bubbletea_windows.go`)
+   - SSH session wrapper that works with Bubble Tea
+   - Provides Read/Write interfaces for bidirectional communication
+   - Handles window resize events
+   - Platform-specific implementations for Unix and Windows
+
+3. **TerminalComponent** (`internal/ui/components/terminal.go`)
+   - Bubble Tea component that integrates VTerminal and BubbleTeaSession
+   - Handles user input (keyboard and mouse)
+   - Forwards keystrokes to SSH session
+   - Renders terminal output within Bubble Tea UI
+   - Manages scrolling and text selection
+
+### Data Flow
+
+```
+User Input (Keyboard/Mouse)
+    ↓
+TerminalComponent.Update()
+    ↓
+BubbleTeaSession.Write() ──→ SSH Server
+    ↓
+SSH Server Output
+    ↓
+SSHOutputMsg
+    ↓
+VTerminal.Write() (ANSI parsing)
+    ↓
+VTerminal.Render()
+    ↓
+Display in Bubble Tea View
+```
+
+### Key Features
+
+- **No Terminal Takeover**: Works entirely within Bubble Tea (no raw mode on host terminal)
+- **Full Terminal Emulation**: Supports VT100/ANSI escape sequences
+- **Scrollback**: 10,000 line buffer with keyboard and mouse scrolling
+- **Text Selection**: Click and drag to select, automatic clipboard copy
+- **Resize Support**: Handles terminal resize events seamlessly
+- **Keyboard Support**: Full support for special keys (arrows, home, end, function keys, etc.)
 
 ---
 
@@ -143,3 +199,7 @@ flowchart TD
   - `internal/ui/update.go`  
   - `internal/ui/view.go`  
   - `internal/ui/components/`
+  - `internal/ui/components/vterm.go` - Virtual terminal emulator
+  - `internal/ui/components/terminal.go` - Terminal component
+  - `internal/ssh/session_bubbletea_unix.go` - Unix SSH session
+  - `internal/ssh/session_bubbletea_windows.go` - Windows SSH session
