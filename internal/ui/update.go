@@ -168,10 +168,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// - App padding: 2 lines (top + bottom)
 				// - Help text with margins: 2 lines
 				// Total: 6 lines
-				adjustedHeight := msg.Height - 6
-				if adjustedHeight < 14 { // Minimum: 10 for content + 2 for terminal header/footer + 2 buffer
-					adjustedHeight = 14
-				}
+				adjustedHeight := max(msg.Height-6, 14)
 				adjustedMsg := tea.WindowSizeMsg{
 					Width:  msg.Width,
 					Height: adjustedHeight,

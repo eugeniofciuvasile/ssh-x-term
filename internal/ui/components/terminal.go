@@ -64,10 +64,7 @@ func startSessionCmd(connConfig config.SSHConnection, width, height int) tea.Cmd
 		}
 
 		// Use all available height minus terminal's own header and footer
-		termHeight := height - 2
-		if termHeight < 10 {
-			termHeight = 10
-		}
+		termHeight := max(height-2, 10)
 
 		session, err := ssh.NewBubbleTeaSession(connConfig, width, termHeight)
 		if err != nil {
@@ -153,10 +150,7 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			width = 80 // Default width
 		}
 		// Start with a reasonable height - will be adjusted in View()
-		termHeight := t.height - 2
-		if termHeight < 10 {
-			termHeight = 10
-		}
+		termHeight := max(t.height-2, 10)
 
 		log.Printf("Creating VTerminal with width=%d, height=%d (window: %dx%d)", width, termHeight, t.width, t.height)
 		t.vterm = NewVTerminal(width, termHeight)
@@ -309,13 +303,14 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return t, nil
 			case tea.MouseButtonLeft:
 				// Start selection on press
-				if msg.Action == tea.MouseActionPress {
+				switch msg.Action {
+				case tea.MouseActionPress:
 					// Adjust Y coordinate for header (subtract 1 for header line)
 					adjustedY := msg.Y - 1
 					if adjustedY >= 0 {
 						t.vterm.StartSelection(msg.X, adjustedY)
 					}
-				} else if msg.Action == tea.MouseActionRelease {
+				case tea.MouseActionRelease:
 					// Try to copy selection on release
 					if t.vterm.HasSelection() {
 						if err := t.vterm.CopySelection(); err != nil {
@@ -401,12 +396,9 @@ func (t *TerminalComponent) View() string {
 	// Calculate actual heights of header and footer after rendering
 	headerHeight := lipgloss.Height(header)
 	footerHeight := lipgloss.Height(footer)
-	
+
 	// Calculate available space for content
-	contentHeight := t.height - headerHeight - footerHeight
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
+	contentHeight := max(t.height-headerHeight-footerHeight, 1)
 
 	var content string
 	if t.vterm != nil {
@@ -436,10 +428,7 @@ func centeredBox(content string, width, height int) string {
 
 	// Calculate vertical padding
 	contentHeight := len(lines)
-	topPadding := (height - contentHeight) / 2
-	if topPadding < 0 {
-		topPadding = 0
-	}
+	topPadding := max((height-contentHeight)/2, 0)
 
 	// Add padding
 	var result strings.Builder
@@ -449,10 +438,7 @@ func centeredBox(content string, width, height int) string {
 	for _, line := range lines {
 		// Calculate horizontal padding for this line
 		lineLength := len(line)
-		leftPadding := (width - lineLength) / 2
-		if leftPadding < 0 {
-			leftPadding = 0
-		}
+		leftPadding := max((width-lineLength)/2, 0)
 
 		result.WriteString(strings.Repeat(" ", leftPadding))
 		result.WriteString(line)
@@ -460,11 +446,4 @@ func centeredBox(content string, width, height int) string {
 	}
 
 	return result.String()
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
