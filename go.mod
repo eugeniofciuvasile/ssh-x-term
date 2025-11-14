@@ -4,7 +4,6 @@ go 1.24.2
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.5
-	github.com/hinshun/vt10x v0.0.0-20220301184237-5011da428d02
 	golang.org/x/crypto v0.38.0
 )
 
