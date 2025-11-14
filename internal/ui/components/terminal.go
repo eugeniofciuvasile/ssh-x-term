@@ -369,19 +369,24 @@ func (t *TerminalComponent) View() string {
 			t.connection.Name),
 	)
 
-	scrollIndicator := ""
+	var scrollIndicator string
 	if t.vterm != nil && t.vterm.IsScrolledBack() {
-		scrollIndicator = " [SCROLLBACK MODE]"
+		scrollIndicator = " [SCROLL]"
 	}
 
-	statusText := "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll | Click+Drag/CTRL+C: Copy"
+	// Create status text that adapts to terminal width
+	var statusText string
 	if t.sessionClosed {
 		statusText = "Session closed - Press ESC to return"
+	} else if t.width < 80 {
+		// Short version for narrow terminals
+		statusText = "ESC: Exit | CTRL+D: EOF" + scrollIndicator
+	} else {
+		// Full version
+		statusText = "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll | Mouse: Select & Copy" + scrollIndicator
 	}
 
-	footer := terminalFooterStyle.Width(t.width).Render(
-		statusText + scrollIndicator,
-	)
+	footer := terminalFooterStyle.Width(t.width).Render(statusText)
 
 	var content string
 	if t.vterm != nil {
