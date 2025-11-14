@@ -398,7 +398,10 @@ func (t *TerminalComponent) View() string {
 	footerHeight := lipgloss.Height(footer)
 
 	// Calculate available space for content
-	contentHeight := max(t.height-headerHeight-footerHeight, 1)
+	contentHeight := t.height - headerHeight - footerHeight
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
 
 	var content string
 	if t.vterm != nil {
