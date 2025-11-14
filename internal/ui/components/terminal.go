@@ -85,7 +85,9 @@ func listenForOutput(session *ssh.BubbleTeaSession) tea.Cmd {
 		if n > 0 {
 			return SSHOutputMsg{Data: buf[:n]}
 		}
-		return nil
+		// If n == 0, we should still continue listening
+		// Return a message that tells us to continue
+		return SSHOutputMsg{Data: nil}
 	}
 }
 
@@ -150,12 +152,19 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.session = msg.Session
 		t.status = "Connected"
 
-		// Create virtual terminal
+		// Create virtual terminal with proper dimensions
+		// Ensure we have valid dimensions
+		width := t.width
+		if width <= 0 {
+			width = 80 // Default width
+		}
 		termHeight := t.height - 4
 		if termHeight < 10 {
 			termHeight = 10
 		}
-		t.vterm = NewVTerminal(t.width, termHeight)
+		
+		log.Printf("Creating VTerminal with width=%d, height=%d (window: %dx%d)", width, termHeight, t.width, t.height)
+		t.vterm = NewVTerminal(width, termHeight)
 
 		// Start the session
 		if err := t.session.Start(); err != nil {
@@ -168,9 +177,12 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return t, listenForOutput(t.session)
 
 	case SSHOutputMsg:
-		if t.vterm != nil && msg.Data != nil {
+		if t.vterm != nil && msg.Data != nil && len(msg.Data) > 0 {
 			// Write data to virtual terminal
 			t.vterm.Write(msg.Data)
+			
+			// Log for debugging
+			log.Printf("Received %d bytes from SSH, wrote to vterm", len(msg.Data))
 
 			// Automatically scroll to bottom when new data arrives (unless manually scrolled)
 			if !t.vterm.IsScrolledBack() {
@@ -178,8 +190,11 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Continue listening
-		return t, listenForOutput(t.session)
+		// Continue listening (even if no data this time)
+		if t.session != nil && !t.sessionClosed {
+			return t, listenForOutput(t.session)
+		}
+		return t, nil
 
 	case SSHErrorMsg:
 		t.mutex.Lock()
@@ -391,11 +406,13 @@ func (t *TerminalComponent) View() string {
 	var content string
 	if t.vterm != nil {
 		content = t.vterm.Render()
+		// Remove trailing newline if present to control spacing
+		content = strings.TrimRight(content, "\n")
 	} else {
 		content = strings.Repeat("\n", max(t.height-4, 0))
 	}
 
-	return fmt.Sprintf("%s\n%s%s", header, content, footer)
+	return fmt.Sprintf("%s\n%s\n%s", header, content, footer)
 }
 
 // IsFinished returns whether the terminal session is finished

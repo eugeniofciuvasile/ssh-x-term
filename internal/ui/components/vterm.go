@@ -45,6 +45,14 @@ type cellAttrs struct {
 
 // NewVTerminal creates a new virtual terminal with specified dimensions
 func NewVTerminal(width, height int) *VTerminal {
+	// Ensure minimum dimensions
+	if width < 1 {
+		width = 80
+	}
+	if height < 1 {
+		height = 24
+	}
+	
 	vt := &VTerminal{
 		width:         width,
 		height:        height,
