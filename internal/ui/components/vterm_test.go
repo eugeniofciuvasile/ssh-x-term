@@ -91,10 +91,10 @@ func TestVTerminalClearScreen(t *testing.T) {
 	vt := NewVTerminal(80, 24)
 
 	vt.Write([]byte("Some text"))
-	
+
 	// Clear screen with CSI 2J
 	vt.Write([]byte("\x1B[2J"))
-	
+
 	output := vt.Render()
 	// After clearing, the output should be mostly empty (just whitespace and newlines)
 	nonWhitespace := strings.TrimSpace(output)

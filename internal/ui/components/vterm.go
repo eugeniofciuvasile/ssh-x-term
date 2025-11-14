@@ -11,21 +11,21 @@ import (
 
 // VTerminal represents a virtual terminal emulator that can render ANSI/VT100 sequences
 type VTerminal struct {
-	width          int
-	height         int
-	buffer         [][]rune // Terminal buffer [row][col]
-	scrollback     [][]rune // Scrollback buffer for scrolling
-	cursorX        int
-	cursorY        int
-	scrollOffset   int // How many lines scrolled back
-	maxScrollback  int
-	mutex          sync.RWMutex
-	savedCursorX   int
-	savedCursorY   int
-	inEscapeSeq    bool
-	escapeSeq      []byte
-	attrs          cellAttrs
-	defaultAttrs   cellAttrs
+	width         int
+	height        int
+	buffer        [][]rune // Terminal buffer [row][col]
+	scrollback    [][]rune // Scrollback buffer for scrolling
+	cursorX       int
+	cursorY       int
+	scrollOffset  int // How many lines scrolled back
+	maxScrollback int
+	mutex         sync.RWMutex
+	savedCursorX  int
+	savedCursorY  int
+	inEscapeSeq   bool
+	escapeSeq     []byte
+	attrs         cellAttrs
+	defaultAttrs  cellAttrs
 	// Mouse selection support
 	selectionStart *position
 	selectionEnd   *position

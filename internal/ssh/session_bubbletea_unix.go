@@ -15,17 +15,17 @@ import (
 
 // BubbleTeaSession represents an SSH session that works within Bubble Tea
 type BubbleTeaSession struct {
-	client   *Client
-	session  *ssh.Session
-	stdin    io.WriteCloser
-	stdout   io.Reader
-	stderr   io.Reader
-	done     chan struct{}
-	wg       sync.WaitGroup
-	exiting  bool
-	mutex    sync.Mutex
-	width    int
-	height   int
+	client  *Client
+	session *ssh.Session
+	stdin   io.WriteCloser
+	stdout  io.Reader
+	stderr  io.Reader
+	done    chan struct{}
+	wg      sync.WaitGroup
+	exiting bool
+	mutex   sync.Mutex
+	width   int
+	height  int
 }
 
 // NewBubbleTeaSession creates a new SSH session for use within Bubble Tea
