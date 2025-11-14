@@ -219,6 +219,29 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Scroll to bottom
 				t.vterm.ScrollToBottom()
 				return t, nil
+			case "ctrl+c":
+				// Copy selection to clipboard
+				if t.vterm.HasSelection() {
+					if err := t.vterm.CopySelection(); err != nil {
+						log.Printf("Failed to copy: %v", err)
+					}
+					t.vterm.ClearSelection()
+					return t, nil
+				}
+				// If no selection, send SIGINT to SSH session
+				if t.session != nil {
+					t.session.Write([]byte{3}) // Send Ctrl+C
+				}
+				return t, nil
+			case "ctrl+shift+c":
+				// Force copy
+				if t.vterm.HasSelection() {
+					if err := t.vterm.CopySelection(); err != nil {
+						log.Printf("Failed to copy: %v", err)
+					}
+					t.vterm.ClearSelection()
+				}
+				return t, nil
 			}
 		}
 
@@ -274,6 +297,32 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case tea.MouseButtonWheelDown:
 				t.vterm.ScrollDown(3)
 				return t, nil
+			case tea.MouseButtonLeft:
+				// Start selection on press
+				if msg.Action == tea.MouseActionPress {
+					// Adjust Y coordinate for header (subtract 1 for header line)
+					adjustedY := msg.Y - 1
+					if adjustedY >= 0 {
+						t.vterm.StartSelection(msg.X, adjustedY)
+					}
+				} else if msg.Action == tea.MouseActionRelease {
+					// Try to copy selection on release
+					if t.vterm.HasSelection() {
+						if err := t.vterm.CopySelection(); err != nil {
+							log.Printf("Failed to copy selection: %v", err)
+						}
+					}
+				}
+				return t, nil
+			case tea.MouseButtonNone:
+				// Update selection while dragging
+				if msg.Action == tea.MouseActionMotion {
+					adjustedY := msg.Y - 1
+					if adjustedY >= 0 {
+						t.vterm.UpdateSelection(msg.X, adjustedY)
+					}
+				}
+				return t, nil
 			}
 		}
 		return t, nil
@@ -325,7 +374,7 @@ func (t *TerminalComponent) View() string {
 		scrollIndicator = " [SCROLLBACK MODE]"
 	}
 
-	statusText := "ESC: Disconnect | CTRL+D: EOF | PgUp/PgDn: Scroll"
+	statusText := "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll | Click+Drag/CTRL+C: Copy"
 	if t.sessionClosed {
 		statusText = "Session closed - Press ESC to return"
 	}
