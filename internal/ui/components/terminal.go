@@ -132,21 +132,8 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width
 		t.height = msg.Height
-
-		// Resize virtual terminal
-		if t.vterm != nil {
-			// Use all available height for content, only subtracting terminal's own header and footer
-			termHeight := t.height - 2
-			if termHeight < 10 {
-				termHeight = 10
-			}
-			t.vterm.Resize(t.width, termHeight)
-
-			// Resize SSH session
-			if t.session != nil {
-				t.session.Resize(t.width, termHeight)
-			}
-		}
+		// Don't resize vterm here - it will be resized dynamically in View()
+		// based on actual rendered header/footer heights
 		return t, nil
 
 	case SSHSessionMsg:
@@ -165,7 +152,7 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if width <= 0 {
 			width = 80 // Default width
 		}
-		// Use all available height minus terminal's own header and footer
+		// Start with a reasonable height - will be adjusted in View()
 		termHeight := t.height - 2
 		if termHeight < 10 {
 			termHeight = 10
@@ -411,13 +398,28 @@ func (t *TerminalComponent) View() string {
 
 	footer := terminalFooterStyle.Width(t.width).Render(statusText)
 
+	// Calculate actual heights of header and footer after rendering
+	headerHeight := lipgloss.Height(header)
+	footerHeight := lipgloss.Height(footer)
+	
+	// Calculate available space for content
+	contentHeight := t.height - headerHeight - footerHeight
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
 	var content string
 	if t.vterm != nil {
+		// Resize vterm to match available content space
+		t.vterm.Resize(t.width, contentHeight)
+		if t.session != nil {
+			t.session.Resize(t.width, contentHeight)
+		}
 		content = t.vterm.Render()
 		// Remove trailing newline if present to control spacing
 		content = strings.TrimRight(content, "\n")
 	} else {
-		content = strings.Repeat("\n", max(t.height-2, 0))
+		content = strings.Repeat("\n", max(contentHeight-1, 0))
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s", header, content, footer)
