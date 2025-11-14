@@ -57,6 +57,14 @@ type SSHSessionMsg struct {
 // startSessionCmd starts an SSH session and returns a message with the result
 func startSessionCmd(connConfig config.SSHConnection, width, height int) tea.Cmd {
 	return func() tea.Msg {
+		// Ensure we have valid dimensions
+		if width <= 0 {
+			width = 80
+		}
+		if height <= 0 {
+			height = 24
+		}
+		
 		// Calculate terminal dimensions (leaving room for header/footer)
 		termHeight := height - 4
 		if termHeight < 10 {
