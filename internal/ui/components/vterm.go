@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/atotto/clipboard"
 )
@@ -26,6 +27,9 @@ type VTerminal struct {
 	escapeSeq     []byte
 	attrs         cellAttrs
 	defaultAttrs  cellAttrs
+	// UTF-8 decoding state
+	utf8Buf     []byte // Buffer for incomplete UTF-8 sequences
+	utf8BufSize int    // Current size of UTF-8 buffer
 	// Mouse selection support
 	selectionStart *position
 	selectionEnd   *position
@@ -57,6 +61,7 @@ func NewVTerminal(width, height int) *VTerminal {
 		width:         width,
 		height:        height,
 		maxScrollback: 10000,
+		utf8Buf:       make([]byte, 4), // UTF-8 characters can be up to 4 bytes
 		defaultAttrs: cellAttrs{
 			fgColor: -1,
 			bgColor: -1,
@@ -107,7 +112,7 @@ func (vt *VTerminal) Write(data []byte) (int, error) {
 }
 
 func (vt *VTerminal) processByte(b byte) {
-	// Handle escape sequences
+	// Handle escape sequences (these take priority over UTF-8 decoding)
 	if vt.inEscapeSeq {
 		vt.escapeSeq = append(vt.escapeSeq, b)
 		if vt.isEscapeComplete() {
@@ -120,31 +125,90 @@ func (vt *VTerminal) processByte(b byte) {
 
 	// Start of escape sequence
 	if b == 0x1B { // ESC
+		// Reset any incomplete UTF-8 sequence when starting escape sequence
+		vt.utf8BufSize = 0
 		vt.inEscapeSeq = true
 		vt.escapeSeq = []byte{b}
 		return
 	}
 
-	// Handle control characters
-	switch b {
-	case '\r': // Carriage return
-		vt.cursorX = 0
-	case '\n': // Line feed
-		vt.newLine()
-	case '\b': // Backspace
-		if vt.cursorX > 0 {
-			vt.cursorX--
+	// Handle control characters (0x00-0x1F, 0x7F)
+	if b < 0x20 || b == 0x7F {
+		// Reset any incomplete UTF-8 sequence when receiving control character
+		vt.utf8BufSize = 0
+
+		switch b {
+		case 0x00: // NUL - ignore
+			// Do nothing
+		case 0x0D: // Carriage return (CR, CTRL+M, '\r')
+			vt.cursorX = 0
+		case 0x0A: // Line feed (LF, CTRL+J, '\n')
+			vt.newLine()
+		case 0x08: // Backspace (BS, CTRL+H, '\b')
+			if vt.cursorX > 0 {
+				vt.cursorX--
+			}
+		case 0x09: // Tab (HT, CTRL+I, '\t')
+			vt.cursorX = (vt.cursorX + 8) & ^7
+			if vt.cursorX >= vt.width {
+				vt.cursorX = vt.width - 1
+			}
+		case 0x07: // Bell (BEL, CTRL+G) - ignore
+			// Do nothing - bell sound not supported in TUI
+		case 0x0C: // Form feed (FF, CTRL+L) - typically used for clear screen
+			// Some programs use FF as clear screen, we'll just move to new line
+			vt.newLine()
+		case 0x0B: // Vertical tab (VT) - treat as line feed
+			vt.newLine()
+		case 0x0E, 0x0F: // Shift Out/Shift In - character set switching, ignore for now
+			// These are used for alternate character sets, not commonly used in modern terminals
+		case 0x7F: // DEL - delete character (usually same as backspace)
+			if vt.cursorX > 0 {
+				vt.cursorX--
+			}
 		}
-	case '\t': // Tab
-		vt.cursorX = (vt.cursorX + 8) & ^7
-		if vt.cursorX >= vt.width {
-			vt.cursorX = vt.width - 1
+		// Ignore other control characters (0x01-0x06, 0x10-0x1A, 0x1C-0x1F) that we don't explicitly handle
+		return
+	}
+
+	// Handle printable characters and UTF-8 sequences
+	// Check if this is a single-byte ASCII character (0x20-0x7E)
+	if b < 0x80 {
+		// Reset any incomplete UTF-8 sequence
+		vt.utf8BufSize = 0
+		vt.putChar(rune(b))
+		return
+	}
+
+	// Multi-byte UTF-8 character handling
+	// Add byte to UTF-8 buffer
+	if vt.utf8BufSize < len(vt.utf8Buf) {
+		vt.utf8Buf[vt.utf8BufSize] = b
+		vt.utf8BufSize++
+	} else {
+		// Buffer overflow, reset and treat as invalid
+		vt.utf8BufSize = 1
+		vt.utf8Buf[0] = b
+	}
+
+	// Try to decode UTF-8 sequence
+	r, size := utf8.DecodeRune(vt.utf8Buf[:vt.utf8BufSize])
+
+	if r == utf8.RuneError {
+		if vt.utf8BufSize >= 4 {
+			// We have 4 bytes but still can't decode - invalid UTF-8
+			// Reset buffer and skip this sequence
+			vt.utf8BufSize = 0
 		}
-	case 0x07: // Bell - ignore
-	default:
-		if b >= 32 { // Printable character
-			vt.putChar(rune(b))
-		}
+		// Otherwise, wait for more bytes
+		return
+	}
+
+	// Successfully decoded a rune
+	if size > 0 {
+		vt.putChar(r)
+		// Reset UTF-8 buffer
+		vt.utf8BufSize = 0
 	}
 }
 
@@ -220,6 +284,15 @@ func (vt *VTerminal) isEscapeComplete() bool {
 		return false
 	}
 
+	// Character set designation sequences: ESC ( <char>, ESC ) <char>, ESC * <char>, ESC + <char>
+	if len(vt.escapeSeq) >= 2 {
+		secondByte := vt.escapeSeq[1]
+		if secondByte == '(' || secondByte == ')' || secondByte == '*' || secondByte == '+' {
+			// Need 3 bytes for character set designation
+			return len(vt.escapeSeq) >= 3
+		}
+	}
+
 	// Other simple sequences: ESC <char>
 	return len(vt.escapeSeq) >= 2
 }
@@ -241,18 +314,41 @@ func (vt *VTerminal) handleEscapeSequence() {
 		return
 	}
 
+	// Character set designation sequences: ESC ( <char>, ESC ) <char>, ESC * <char>, ESC + <char>
+	// These are used to switch between character sets (ASCII, line drawing, etc.)
+	// For example: ESC(B = select ASCII for G0, ESC(0 = select line drawing for G0
+	if len(vt.escapeSeq) >= 3 {
+		secondByte := vt.escapeSeq[1]
+		if secondByte == '(' || secondByte == ')' || secondByte == '*' || secondByte == '+' {
+			// Character set designation - silently ignore for now
+			// In a full implementation, we would track the character set and use it
+			// for proper rendering of line drawing characters (box drawing, etc.)
+			// Common values: 'B' = ASCII, '0' = DEC Special Graphics, 'A' = UK charset
+			return
+		}
+	}
+
 	// Simple escape sequences
 	switch vt.escapeSeq[1] {
 	case 'M': // Reverse index (move up)
 		if vt.cursorY > 0 {
 			vt.cursorY--
 		}
-	case '7': // Save cursor position
+	case '7': // Save cursor position (DECSC)
 		vt.savedCursorX = vt.cursorX
 		vt.savedCursorY = vt.cursorY
-	case '8': // Restore cursor position
+	case '8': // Restore cursor position (DECRC)
 		vt.cursorX = vt.savedCursorX
 		vt.cursorY = vt.savedCursorY
+	case 'D': // Index (move down, scroll if at bottom) - IND
+		vt.newLine()
+	case 'E': // Next line (CR + LF) - NEL
+		vt.cursorX = 0
+		vt.newLine()
+	case 'H': // Tab set - HTS (ignore for now)
+		// Would set a tab stop at current cursor position
+	case 'c': // Reset (RIS) - full reset
+		vt.clearInternal() // Use internal version to avoid deadlock
 	}
 }
 
@@ -351,6 +447,103 @@ func (vt *VTerminal) handleCSI() {
 		}
 		vt.eraseLine(mode)
 
+	case 'L': // Insert lines
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.insertLines(n)
+
+	case 'M': // Delete lines
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.deleteLines(n)
+
+	case 'P': // Delete characters
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.deleteChars(n)
+
+	case 'X': // Erase characters (without moving cursor)
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.eraseChars(n)
+
+	case 'd': // Vertical position absolute
+		row := 1
+		if len(args) > 0 && args[0] > 0 {
+			row = args[0]
+		}
+		vt.cursorY = row - 1
+		if vt.cursorY < 0 {
+			vt.cursorY = 0
+		}
+		if vt.cursorY >= vt.height {
+			vt.cursorY = vt.height - 1
+		}
+
+	case 'G', '`': // Horizontal position absolute
+		col := 1
+		if len(args) > 0 && args[0] > 0 {
+			col = args[0]
+		}
+		vt.cursorX = col - 1
+		if vt.cursorX < 0 {
+			vt.cursorX = 0
+		}
+		if vt.cursorX >= vt.width {
+			vt.cursorX = vt.width - 1
+		}
+
+	case 's': // Save cursor position (ANSI.SYS)
+		vt.savedCursorX = vt.cursorX
+		vt.savedCursorY = vt.cursorY
+
+	case 'u': // Restore cursor position (ANSI.SYS)
+		vt.cursorX = vt.savedCursorX
+		vt.cursorY = vt.savedCursorY
+
+	case '@': // Insert blank characters (ICH)
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.insertChars(n)
+
+	case 'S': // Scroll up (SU)
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		// Scroll the screen up by n lines
+		for i := 0; i < n; i++ {
+			vt.newLine()
+		}
+
+	case 'T': // Scroll down (SD)
+		// Scroll down is rarely used and complex to implement
+		// Just ignore for now
+		_ = args // Suppress unused variable warning
+
+	case 'h': // Set mode
+		// Handle various DEC private modes with '?' prefix
+		if params != "" && params[0] == '?' {
+			// Private mode set - just ignore for now
+			// Common ones: ?25 = cursor visible, ?1049 = alternate screen buffer
+		}
+
+	case 'l': // Reset mode
+		// Handle various DEC private modes with '?' prefix
+		if params != "" && params[0] == '?' {
+			// Private mode reset - just ignore for now
+		}
+
 	case 'm': // SGR - Select Graphic Rendition
 		vt.handleSGR(args)
 	}
@@ -439,29 +632,216 @@ func (vt *VTerminal) handleSGR(args []int) {
 		args = []int{0}
 	}
 
-	for _, arg := range args {
+	i := 0
+	for i < len(args) {
+		arg := args[i]
 		switch arg {
 		case 0: // Reset
 			vt.attrs = vt.defaultAttrs
 		case 1: // Bold
 			vt.attrs.bold = true
+		case 2: // Dim/faint (treat as normal for now)
+			// Not commonly supported
+		case 3: // Italic (ignore for now)
+			// Not commonly supported in terminals
+		case 4: // Underline (ignore for now)
+			// Would require additional attribute tracking
+		case 5, 6: // Blink slow/rapid (ignore)
+			// Not supported in TUI
 		case 7: // Reverse
 			vt.attrs.reverse = true
-		case 22: // Not bold
+		case 8: // Conceal/hidden (ignore)
+			// Not commonly used
+		case 9: // Crossed out (ignore)
+			// Not commonly supported
+		case 21: // Double underline (ignore)
+			// Not commonly supported
+		case 22: // Not bold, not dim
 			vt.attrs.bold = false
+		case 23: // Not italic
+			// Ignore
+		case 24: // Not underlined
+			// Ignore
+		case 25: // Not blinking
+			// Ignore
 		case 27: // Not reverse
 			vt.attrs.reverse = false
-		// Foreground colors 30-37
+		case 28: // Not concealed
+			// Ignore
+		case 29: // Not crossed out
+			// Ignore
+		// Foreground colors 30-37 (standard colors)
 		case 30, 31, 32, 33, 34, 35, 36, 37:
 			vt.attrs.fgColor = arg - 30
+		// Extended foreground color (256-color or RGB)
+		case 38:
+			if i+1 < len(args) {
+				if args[i+1] == 5 && i+2 < len(args) {
+					// 256-color: ESC[38;5;Nm
+					vt.attrs.fgColor = args[i+2]
+					i += 2
+				} else if args[i+1] == 2 && i+4 < len(args) {
+					// RGB color: ESC[38;2;R;G;Bm
+					// For simplicity, map to closest standard color
+					// In a full implementation, we'd track RGB values
+					i += 4
+				}
+			}
 		case 39: // Default foreground
 			vt.attrs.fgColor = -1
-		// Background colors 40-47
+		// Background colors 40-47 (standard colors)
 		case 40, 41, 42, 43, 44, 45, 46, 47:
 			vt.attrs.bgColor = arg - 40
+		// Extended background color (256-color or RGB)
+		case 48:
+			if i+1 < len(args) {
+				if args[i+1] == 5 && i+2 < len(args) {
+					// 256-color: ESC[48;5;Nm
+					vt.attrs.bgColor = args[i+2]
+					i += 2
+				} else if args[i+1] == 2 && i+4 < len(args) {
+					// RGB color: ESC[48;2;R;G;Bm
+					i += 4
+				}
+			}
 		case 49: // Default background
 			vt.attrs.bgColor = -1
+		// Bright foreground colors 90-97
+		case 90, 91, 92, 93, 94, 95, 96, 97:
+			vt.attrs.fgColor = arg - 90 + 8
+		// Bright background colors 100-107
+		case 100, 101, 102, 103, 104, 105, 106, 107:
+			vt.attrs.bgColor = arg - 100 + 8
 		}
+		i++
+	}
+}
+
+// insertLines inserts n blank lines at cursor position, scrolling down
+func (vt *VTerminal) insertLines(n int) {
+	if vt.cursorY >= vt.height || n <= 0 {
+		return
+	}
+
+	// Limit n to available space
+	if vt.cursorY+n > vt.height {
+		n = vt.height - vt.cursorY
+	}
+
+	// Move existing lines down
+	for i := vt.height - 1; i >= vt.cursorY+n; i-- {
+		if i < len(vt.buffer) && i-n < len(vt.buffer) && i-n >= 0 {
+			copy(vt.buffer[i], vt.buffer[i-n])
+		}
+	}
+
+	// Clear the inserted lines
+	for i := 0; i < n && vt.cursorY+i < vt.height; i++ {
+		if vt.cursorY+i < len(vt.buffer) {
+			for x := 0; x < vt.width; x++ {
+				if x < len(vt.buffer[vt.cursorY+i]) {
+					vt.buffer[vt.cursorY+i][x] = ' '
+				}
+			}
+		}
+	}
+}
+
+// deleteLines deletes n lines at cursor position, scrolling up
+func (vt *VTerminal) deleteLines(n int) {
+	if vt.cursorY >= vt.height || n <= 0 {
+		return
+	}
+
+	// Limit n to available lines
+	if vt.cursorY+n > vt.height {
+		n = vt.height - vt.cursorY
+	}
+
+	// Move lines up
+	for i := vt.cursorY; i < vt.height-n; i++ {
+		if i < len(vt.buffer) && i+n < len(vt.buffer) {
+			copy(vt.buffer[i], vt.buffer[i+n])
+		}
+	}
+
+	// Clear the bottom lines
+	for i := vt.height - n; i < vt.height; i++ {
+		if i >= 0 && i < len(vt.buffer) {
+			for x := 0; x < vt.width; x++ {
+				if x < len(vt.buffer[i]) {
+					vt.buffer[i][x] = ' '
+				}
+			}
+		}
+	}
+}
+
+// deleteChars deletes n characters at cursor position, shifting line left
+func (vt *VTerminal) deleteChars(n int) {
+	if vt.cursorY >= len(vt.buffer) || n <= 0 {
+		return
+	}
+
+	line := vt.buffer[vt.cursorY]
+	if vt.cursorX >= len(line) {
+		return
+	}
+
+	// Limit n to remaining characters on line
+	if vt.cursorX+n > len(line) {
+		n = len(line) - vt.cursorX
+	}
+
+	// Shift characters left
+	for i := vt.cursorX; i < len(line)-n; i++ {
+		line[i] = line[i+n]
+	}
+
+	// Fill the end with spaces
+	for i := len(line) - n; i < len(line); i++ {
+		line[i] = ' '
+	}
+}
+
+// insertChars inserts n blank characters at cursor position, shifting line right
+func (vt *VTerminal) insertChars(n int) {
+	if vt.cursorY >= len(vt.buffer) || n <= 0 {
+		return
+	}
+
+	line := vt.buffer[vt.cursorY]
+	if vt.cursorX >= len(line) {
+		return
+	}
+
+	// Limit n to remaining space on line
+	if vt.cursorX+n > len(line) {
+		n = len(line) - vt.cursorX
+	}
+
+	// Shift characters right
+	for i := len(line) - 1; i >= vt.cursorX+n; i-- {
+		line[i] = line[i-n]
+	}
+
+	// Fill the inserted positions with spaces
+	for i := vt.cursorX; i < vt.cursorX+n && i < len(line); i++ {
+		line[i] = ' '
+	}
+}
+
+// eraseChars erases n characters at cursor position (replaces with spaces)
+func (vt *VTerminal) eraseChars(n int) {
+	if vt.cursorY >= len(vt.buffer) || n <= 0 {
+		return
+	}
+
+	line := vt.buffer[vt.cursorY]
+
+	// Erase up to n characters or end of line
+	for i := 0; i < n && vt.cursorX+i < len(line); i++ {
+		line[vt.cursorX+i] = ' '
 	}
 }
 
@@ -582,6 +962,11 @@ func (vt *VTerminal) ScrollToBottom() {
 func (vt *VTerminal) Clear() {
 	vt.mutex.Lock()
 	defer vt.mutex.Unlock()
+	vt.clearInternal()
+}
+
+// clearInternal clears the terminal buffer without locking (for internal use)
+func (vt *VTerminal) clearInternal() {
 	vt.initBuffer()
 	vt.cursorX = 0
 	vt.cursorY = 0

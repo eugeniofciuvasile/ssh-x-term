@@ -51,18 +51,18 @@ type SSHSessionMsg struct {
 
 // TerminalComponent represents a terminal component for SSH sessions
 type TerminalComponent struct {
-	connection       config.SSHConnection
-	session          *ssh.BubbleTeaSession
-	vterm            *VTerminal
-	status           string
-	error            error
-	loading          bool
-	width            int
-	height           int
-	finished         bool
-	mutex            sync.Mutex
-	sessionClosed    bool
-	sessionStarted   bool // Track if session has been initiated
+	connection     config.SSHConnection
+	session        *ssh.BubbleTeaSession
+	vterm          *VTerminal
+	status         string
+	error          error
+	loading        bool
+	width          int
+	height         int
+	finished       bool
+	mutex          sync.Mutex
+	sessionClosed  bool
+	sessionStarted bool // Track if session has been initiated
 }
 
 // NewTerminalComponent creates a new terminal component
@@ -87,13 +87,13 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width
 		t.height = msg.Height
-		
+
 		// If session not started yet, start it now with proper dimensions
 		if !t.sessionStarted && !t.finished && t.error == nil {
 			t.sessionStarted = true
 			return t, t.startSession(t.connection, t.width, t.height)
 		}
-		
+
 		// Otherwise just resize
 		t.resizeTerminal()
 		return t, nil
@@ -155,12 +155,12 @@ func (t *TerminalComponent) View() string {
 		"SSH: %s@%s:%d - %s",
 		t.connection.Username, t.connection.Host, t.connection.Port, t.connection.Name,
 	)
-	
+
 	// Include scroll indicator if applicable
 	if t.vterm != nil && t.vterm.IsScrolledBack() {
 		headerText += " [SCROLL]"
 	}
-	
+
 	header := terminalHeaderStyle.Width(t.width).Render(headerText)
 
 	// Get terminal content
@@ -249,10 +249,10 @@ func (t *TerminalComponent) renderFooter() string {
 	}
 
 	if t.width < 80 {
-		return "ESC: Exit | CTRL+D: EOF | Scroll: PgUp/PgDn"
+		return "ESC: Exit | CTRL+C: Interrupt | CTRL+D: EOF"
 	}
 
-	return "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll Vertically | Tab: Complete Command | Mouse: Copy Text"
+	return "ESC: Exit | CTRL+C: Interrupt | CTRL+D: EOF | PgUp/PgDn: Scroll | Mouse: Select/Copy"
 }
 
 // Utility: Handle session errors
@@ -295,12 +295,15 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (t *TerminalComponent) forwardKeyToSession(key string) {
 	var data []byte
 	switch key {
+	// Basic keys
 	case "tab":
 		data = []byte{'\t'}
 	case "enter":
 		data = []byte{'\r'}
 	case "backspace", "delete":
 		data = []byte{127}
+
+	// Arrow keys (ANSI escape sequences)
 	case "up":
 		data = []byte{27, '[', 'A'}
 	case "down":
@@ -309,7 +312,123 @@ func (t *TerminalComponent) forwardKeyToSession(key string) {
 		data = []byte{27, '[', 'C'}
 	case "left":
 		data = []byte{27, '[', 'D'}
+
+	// Home/End keys
+	case "home":
+		data = []byte{27, '[', 'H'}
+	case "end":
+		data = []byte{27, '[', 'F'}
+
+	// Page Up/Page Down (when not used for scrolling)
+	case "pgup":
+		data = []byte{27, '[', '5', '~'}
+	case "pgdown":
+		data = []byte{27, '[', '6', '~'}
+
+	// Function keys
+	case "f1":
+		data = []byte{27, 'O', 'P'}
+	case "f2":
+		data = []byte{27, 'O', 'Q'}
+	case "f3":
+		data = []byte{27, 'O', 'R'}
+	case "f4":
+		data = []byte{27, 'O', 'S'}
+	case "f5":
+		data = []byte{27, '[', '1', '5', '~'}
+	case "f6":
+		data = []byte{27, '[', '1', '7', '~'}
+	case "f7":
+		data = []byte{27, '[', '1', '8', '~'}
+	case "f8":
+		data = []byte{27, '[', '1', '9', '~'}
+	case "f9":
+		data = []byte{27, '[', '2', '0', '~'}
+	case "f10":
+		data = []byte{27, '[', '2', '1', '~'}
+	case "f11":
+		data = []byte{27, '[', '2', '3', '~'}
+	case "f12":
+		data = []byte{27, '[', '2', '4', '~'}
+
+	// Control keys - the most important additions for proper terminal interaction
+	case "ctrl+@", "ctrl+space":
+		data = []byte{0x00} // NUL
+	case "ctrl+a":
+		data = []byte{0x01} // Start of line (common in shells)
+	case "ctrl+b":
+		data = []byte{0x02} // Move back one character
+	case "ctrl+c":
+		data = []byte{0x03} // SIGINT (interrupt signal)
+	case "ctrl+d":
+		data = []byte{0x04} // EOF (end of file / logout)
+	case "ctrl+e":
+		data = []byte{0x05} // End of line
+	case "ctrl+f":
+		data = []byte{0x06} // Move forward one character
+	case "ctrl+g":
+		data = []byte{0x07} // Bell
+	case "ctrl+h":
+		data = []byte{0x08} // Backspace
+	case "ctrl+i":
+		data = []byte{0x09} // Tab
+	case "ctrl+j":
+		data = []byte{0x0A} // Line feed
+	case "ctrl+k":
+		data = []byte{0x0B} // Kill line from cursor
+	case "ctrl+l":
+		data = []byte{0x0C} // Clear screen
+	case "ctrl+m":
+		data = []byte{0x0D} // Carriage return
+	case "ctrl+n":
+		data = []byte{0x0E} // Next line in history
+	case "ctrl+o":
+		data = []byte{0x0F} // Execute command
+	case "ctrl+p":
+		data = []byte{0x10} // Previous line in history
+	case "ctrl+q":
+		data = []byte{0x11} // XON (resume transmission)
+	case "ctrl+r":
+		data = []byte{0x12} // Reverse search
+	case "ctrl+s":
+		data = []byte{0x13} // XOFF (stop transmission) or forward search
+	case "ctrl+t":
+		data = []byte{0x14} // Transpose characters
+	case "ctrl+u":
+		data = []byte{0x15} // Kill line before cursor
+	case "ctrl+v":
+		data = []byte{0x16} // Literal next character
+	case "ctrl+w":
+		data = []byte{0x17} // Delete word backwards
+	case "ctrl+x":
+		data = []byte{0x18} // Various editor commands
+	case "ctrl+y":
+		data = []byte{0x19} // Yank (paste)
+	case "ctrl+z":
+		data = []byte{0x1A} // SIGTSTP (suspend)
+	case "ctrl+[":
+		data = []byte{0x1B} // ESC
+	case "ctrl+\\":
+		data = []byte{0x1C} // SIGQUIT (quit with core dump)
+	case "ctrl+]":
+		data = []byte{0x1D} // Telnet escape character
+	case "ctrl+^", "ctrl+shift+6":
+		data = []byte{0x1E} // Record separator
+	case "ctrl+_", "ctrl+/":
+		data = []byte{0x1F} // Undo
+
+	// Alt/Meta key combinations (send ESC prefix)
+	case "alt+b", "meta+b":
+		data = []byte{27, 'b'} // Back one word
+	case "alt+f", "meta+f":
+		data = []byte{27, 'f'} // Forward one word
+	case "alt+d", "meta+d":
+		data = []byte{27, 'd'} // Delete word forward
+	case "alt+backspace", "meta+backspace":
+		data = []byte{27, 0x7F} // Delete word backward
+
 	default:
+		// For regular characters, just send them as-is
 		data = []byte(key)
 	}
 	if t.session != nil {
