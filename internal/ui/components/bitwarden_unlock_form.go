@@ -3,6 +3,17 @@ package components
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+var (
+	bwUnlockFormStyle = lipgloss.NewStyle().
+				Padding(1, 2)
+
+	bwUnlockTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("205")).
+				MarginBottom(1)
 )
 
 type BitwardenUnlockForm struct {
@@ -53,9 +64,16 @@ func (f *BitwardenUnlockForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (f *BitwardenUnlockForm) View() string {
 	if f.canceled {
-		return "Unlock canceled."
+		return bwUnlockFormStyle.Render("Unlock canceled.")
 	}
-	return "Enter your Bitwarden vault password to unlock:\n" + f.passwordInput.View() + "\n" + f.errorMsg
+	
+	content := bwUnlockTitleStyle.Render("Unlock Bitwarden Vault") + "\n\n"
+	content += "Enter your Bitwarden vault password:\n" + f.passwordInput.View()
+	if f.errorMsg != "" {
+		content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.errorMsg)
+	}
+	
+	return bwUnlockFormStyle.Render(content)
 }
 
 func (f *BitwardenUnlockForm) IsSubmitted() bool {

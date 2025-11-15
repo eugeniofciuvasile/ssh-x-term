@@ -21,6 +21,14 @@ var (
 
 	focusedButton = focusedStyle.Render("[ Submit ]")
 	blurredButton = fmt.Sprintf("[ %s ]", blurredStyle.Render("Submit"))
+
+	formStyle = lipgloss.NewStyle().
+			Padding(1, 2)
+
+	formTitleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("205")).
+			MarginBottom(1)
 )
 
 // ConnectionForm represents a form for creating/editing connections
@@ -216,11 +224,13 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *ConnectionForm) View() string {
 	var b strings.Builder
 
+	// Title
+	title := "Add SSH Connection"
 	if m.editing {
-		b.WriteString("Edit SSH Connection\n\n")
-	} else {
-		b.WriteString("Add SSH Connection\n\n")
+		title = "Edit SSH Connection"
 	}
+	b.WriteString(formTitleStyle.Render(title))
+	b.WriteString("\n\n")
 
 	// Render inputs
 	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Name:", m.inputs[0].View()))
@@ -247,17 +257,14 @@ func (m *ConnectionForm) View() string {
 	if m.focusIndex == len(m.inputs) {
 		button = focusedButton
 	}
-	fmt.Fprintf(&b, "\n%s\n\n", button)
+	fmt.Fprintf(&b, "\n%s\n", button)
 
 	// Show error message if any
 	if m.errorMessage != "" {
 		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(m.errorMessage))
 	}
 
-	// Help
-	fmt.Fprintf(&b, "\n%s\n", blurredStyle.Render("(esc to cancel)"))
-
-	return b.String()
+	return formStyle.Render(b.String())
 }
 
 // IsCanceled returns whether the form was canceled
