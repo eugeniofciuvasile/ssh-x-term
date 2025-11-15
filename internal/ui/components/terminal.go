@@ -129,20 +129,15 @@ func (t *TerminalComponent) View() string {
 	}
 
 	if t.loading {
-		return t.centeredBox(
-			fmt.Sprintf("Connecting to %s@%s:%d...",
-				t.connection.Username,
-				t.connection.Host,
-				t.connection.Port),
-		)
+		return fmt.Sprintf("Connecting to %s@%s:%d...", t.connection.Username, t.connection.Host, t.connection.Port)
 	}
 
 	if t.error != nil {
-		return t.centeredBox(fmt.Sprintf(
+		return fmt.Sprintf(
 			"Error connecting to %s@%s:%d\n\n%s\n\nPress ESC to return",
 			t.connection.Username, t.connection.Host, t.connection.Port,
 			terminalErrorStyle.Render(t.error.Error()),
-		))
+		)
 	}
 
 	header := terminalHeaderStyle.Width(t.width).Render(fmt.Sprintf(
@@ -150,11 +145,13 @@ func (t *TerminalComponent) View() string {
 		t.connection.Username, t.connection.Host, t.connection.Port, t.connection.Name,
 	))
 
+	// Calculate space for terminal content relative to header and footer
+	contentHeight := t.height - 2
 	content := ""
 	if t.vterm != nil {
 		content = t.vterm.Render()
 	} else {
-		content = strings.Repeat("\n", t.contentHeight())
+		content = strings.Repeat("\n", contentHeight)
 	}
 
 	// Include scroll indicator if applicable
@@ -165,24 +162,23 @@ func (t *TerminalComponent) View() string {
 
 	footer := terminalFooterStyle.Width(t.width).Render(t.renderFooter() + scrollIndicator)
 
+	// Combine everything: header, content, footer
 	return strings.Join([]string{header, content, footer}, "\n")
 }
 
-// Utility: Dynamically calculate terminal height
+// Utility: Calculate content height
 func (t *TerminalComponent) contentHeight() int {
-	return t.height - 2 // 1 line each reserved for header and footer
+	return t.height - 2 // Space for header and footer
 }
 
 // Utility: Resize terminal components dynamically
 func (t *TerminalComponent) resizeTerminal() {
-	if t.contentHeight() < 1 {
-		return
-	}
+	contentHeight := t.contentHeight()
 	if t.vterm != nil {
-		t.vterm.Resize(t.width, t.contentHeight())
+		t.vterm.Resize(t.width, contentHeight)
 	}
 	if t.session != nil {
-		t.session.Resize(t.width, t.contentHeight())
+		t.session.Resize(t.width, contentHeight)
 	}
 }
 
@@ -235,6 +231,19 @@ func (t *TerminalComponent) writeToVTerminal(data []byte) {
 	}
 }
 
+// Utility: Render the footer with helper instructions
+func (t *TerminalComponent) renderFooter() string {
+	if t.sessionClosed {
+		return "Session closed - Press ESC to return"
+	}
+
+	if t.width < 80 {
+		return "ESC: Exit | CTRL+D: EOF | Scroll: PgUp/PgDn"
+	}
+
+	return "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll Vertically | Tab: Complete Command | Mouse: Copy Text"
+}
+
 // Utility: Handle session errors
 func (t *TerminalComponent) handleSessionError(err error) {
 	t.mutex.Lock()
@@ -246,20 +255,7 @@ func (t *TerminalComponent) handleSessionError(err error) {
 	}
 }
 
-// Utility: Render the footer with helper instructions.
-func (t *TerminalComponent) renderFooter() string {
-	if t.sessionClosed {
-		return "Session closed - Press ESC to return"
-	}
-	if t.width < 80 {
-		// Condensed instructions for narrow terminals
-		return "ESC: Exit | CTRL+D: EOF | Scroll: PgUp/PgDn"
-	}
-	// Full instructions for wider terminals
-	return "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll Vertically | Tab: Complete Command | Mouse: Copy Text"
-}
-
-// Utility: Handle key input.
+// Utility: Handle key input
 func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -270,11 +266,11 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return t, nil
 
 	case "pgup", "shift+up":
-		t.vterm.ScrollUp(10) // Only scrolls up, doesn't forward this key to the SSH session.
+		t.vterm.ScrollUp(10) // Handle scrolling up
 		return t, nil
 
 	case "pgdown", "shift+down":
-		t.vterm.ScrollDown(10) // Only scrolls down, doesn't forward this key to the SSH session.
+		t.vterm.ScrollDown(10) // Handle scrolling down
 		return t, nil
 
 	default:
@@ -284,7 +280,7 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-// Utility: Forward keys to the SSH session.
+// Utility: Forward keys to SSH session
 func (t *TerminalComponent) forwardKeyToSession(key string) {
 	var data []byte
 	switch key {
@@ -318,21 +314,6 @@ func (t *TerminalComponent) handleMouse(msg tea.MouseMsg) {
 	if msg.Button == tea.MouseButtonWheelDown {
 		t.vterm.ScrollDown(3)
 	}
-}
-
-// Utility: Generate a centered box view
-func (t *TerminalComponent) centeredBox(content string) string {
-	lines := strings.Split(content, "\n")
-	topPadding := max((t.height-len(lines))/2, 0)
-	builder := strings.Builder{}
-	builder.WriteString(strings.Repeat("\n", topPadding))
-	for _, line := range lines {
-		leftPadding := (t.width - len(line)) / 2
-		builder.WriteString(strings.Repeat(" ", leftPadding))
-		builder.WriteString(line)
-		builder.WriteString("\n")
-	}
-	return builder.String()
 }
 
 // IsFinished returns whether the terminal session is finished
