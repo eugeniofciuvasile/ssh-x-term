@@ -275,6 +275,301 @@ SSH-X-Term supports two credential storage modes:
 - Requires Bitwarden CLI (`bw`) to be installed and configured
 - Supports both personal vaults and organization collections
 
+## Common Workflows
+
+### Quick Start: First Connection
+
+1. **Launch SSH-X-Term**:
+   ```bash
+   sxt
+   ```
+
+2. **Choose Storage Backend**:
+   - Select "Local Storage" for getting started quickly
+   - Or "Bitwarden" if you want vault-based credential management
+
+3. **Add Your First Connection**:
+   - Press `a` to add a new connection
+   - Fill in the details:
+     - **Name**: My Server (friendly name)
+     - **Host**: example.com
+     - **Port**: 22
+     - **Username**: your-username
+     - **Auth Type**: Press `Ctrl+p` to toggle between Password/Key
+     - **Password** (if using password auth): your-password
+     - **Key File** (if using key auth): ~/.ssh/id_rsa
+   - Press `Enter` to save
+
+4. **Connect**:
+   - Highlight your connection with arrow keys
+   - Press `Enter` to connect
+   - You're now in an interactive SSH terminal!
+
+5. **Work in the Terminal**:
+   - Type commands as you would in any terminal
+   - Scroll through history with `PgUp`/`PgDn`
+   - Select and copy text by clicking and dragging
+   - Press `Esc` when done to return to the connection list
+
+### Using Bitwarden Storage
+
+1. **Initial Setup**:
+   - Launch `sxt` and select "Bitwarden" as storage backend
+   - Enter your Bitwarden server URL (or leave default for bitwarden.com)
+   - Enter your email address
+
+2. **Login and Unlock**:
+   - Enter your master password when prompted
+   - If 2FA is enabled, enter your 2FA code
+   - Unlock your vault when prompted
+
+3. **Organization Setup** (Optional):
+   - If you use organizations, select your organization
+   - Choose a collection to store connections
+   - Or select "Personal Vault" for individual use
+
+4. **Manage Connections**:
+   - Connections are now stored in your Bitwarden vault
+   - They sync across all your devices
+   - Team members with access to the collection can see shared connections
+
+### Working with Multiple Connections
+
+1. **Open in tmux Windows**:
+   - Press `o` to toggle "Open in new terminal" mode
+   - When enabled, connections open in new tmux windows
+   - Switch between windows with `Ctrl+b` then `w` (tmux commands)
+   - Each connection runs in its own window
+
+2. **Integrated Terminal Mode**:
+   - When "Open in new terminal" is disabled
+   - Connections open in the integrated Bubble Tea terminal
+   - Only one connection active at a time
+   - Press `Esc` to return to connection list and switch
+
+### Editing and Managing Connections
+
+- **Edit**: Press `e` on a highlighted connection
+- **Delete**: Press `d` on a highlighted connection (confirms before deleting)
+- **Switch Storage**: Press `s` to change storage backend (Local ↔ Bitwarden)
+- **Quit**: Press `Ctrl+c` from the connection list
+
+## Troubleshooting
+
+### Keyring Issues (Linux)
+
+**Problem**: "Failed to retrieve password from keyring" or "keyring not available"
+
+**Solution**:
+1. Ensure you have a keyring daemon installed:
+   ```bash
+   sudo apt install gnome-keyring
+   ```
+
+2. Check if the keyring daemon is running:
+   ```bash
+   ps aux | grep gnome-keyring-daemon
+   ```
+
+3. Start the keyring daemon if not running:
+   ```bash
+   gnome-keyring-daemon --start --components=secrets
+   ```
+
+4. For headless systems or servers, consider using Bitwarden storage instead:
+   - Bitwarden doesn't require a GUI keyring
+   - Better for remote/server environments
+
+**Alternative**: Set up gnome-keyring to start automatically:
+```bash
+# Add to ~/.bashrc or ~/.profile
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    eval $(dbus-launch --sh-syntax)
+fi
+eval $(gnome-keyring-daemon --start --components=secrets)
+export SSH_AUTH_SOCK
+```
+
+### Bitwarden CLI Issues
+
+**Problem**: "Bitwarden CLI (bw) is not installed or not in your PATH"
+
+**Solution**:
+1. Install Bitwarden CLI globally with npm:
+   ```bash
+   npm install -g @bitwarden/cli
+   ```
+
+2. Verify installation:
+   ```bash
+   bw --version
+   ```
+
+3. If `bw` is still not found, add npm global bin to PATH:
+   ```bash
+   export PATH="$PATH:$(npm config get prefix)/bin"
+   ```
+
+**Problem**: "You are not logged in" or "Vault is locked"
+
+**Solution**:
+1. SSH-X-Term will automatically prompt you to log in
+2. If issues persist, try logging in manually:
+   ```bash
+   bw login
+   bw unlock
+   ```
+
+3. Check Bitwarden status:
+   ```bash
+   bw status
+   ```
+
+### SSH Connection Issues
+
+**Problem**: "Failed to connect to SSH server" or "Authentication failed"
+
+**Solution**:
+1. Verify host and port are correct
+2. Test connection manually:
+   ```bash
+   ssh -p 22 username@hostname
+   ```
+
+3. For key-based auth, ensure:
+   - Key file path is absolute (e.g., `/home/user/.ssh/id_rsa`)
+   - Key file has correct permissions: `chmod 600 ~/.ssh/id_rsa`
+   - Key is not password-protected (or use ssh-agent)
+
+4. For password auth, ensure:
+   - `passh` (Unix) or `plink.exe` (Windows) is installed
+   - Password is correct in keyring/vault
+
+**Problem**: "passh: not found" (Linux/macOS)
+
+**Solution**:
+1. Install passh from source:
+   ```bash
+   git clone https://github.com/clarkwang/passh.git
+   cd passh
+   cc -o passh passh.c
+   sudo cp passh /usr/local/bin/
+   ```
+
+2. Verify installation:
+   ```bash
+   passh -V
+   ```
+
+### Terminal Display Issues
+
+**Problem**: Terminal output looks garbled or colors are wrong
+
+**Solution**:
+1. Check your terminal emulator supports 256 colors:
+   ```bash
+   echo $TERM
+   # Should show xterm-256color or similar
+   ```
+
+2. Set TERM if needed:
+   ```bash
+   export TERM=xterm-256color
+   ```
+
+3. Try resizing the terminal window (forces re-render)
+
+**Problem**: Terminal is too small or content is cut off
+
+**Solution**:
+1. Resize your terminal window (SSH-X-Term adapts automatically)
+2. Minimum recommended size: 80x24
+3. For best experience: 120x40 or larger
+
+### tmux Integration Issues
+
+**Problem**: "Failed to start tmux session"
+
+**Solution**:
+1. Ensure tmux is installed:
+   ```bash
+   sudo apt install tmux     # Debian/Ubuntu
+   brew install tmux         # macOS
+   ```
+
+2. SSH-X-Term will fall back to integrated terminal mode if tmux is unavailable
+3. Check `~/.config/ssh-x-term/sxt.log` for details
+
+**Problem**: Already inside tmux when launching
+
+**Solution**:
+- SSH-X-Term detects if already in tmux and skips auto-launch
+- This is normal behavior when running inside an existing tmux session
+
+### Performance Issues
+
+**Problem**: Slow or laggy terminal output
+
+**Solution**:
+1. Large outputs (e.g., `cat` large files) may be slow
+2. Use paging commands: `less`, `more`
+3. Reduce scrollback buffer (requires code modification)
+4. Consider using tmux mode for better performance with multiple connections
+
+**Problem**: High memory usage
+
+**Solution**:
+1. Each connection uses ~6-7 MB for scrollback buffer
+2. Close unused connections (press `Esc` in terminal)
+3. This is normal for terminal emulators with large scrollback
+
+### File Paths and Permissions
+
+**Problem**: "Failed to create config directory"
+
+**Solution**:
+1. Ensure you have write permissions to `~/.config/`:
+   ```bash
+   ls -la ~/.config/
+   mkdir -p ~/.config/ssh-x-term
+   ```
+
+2. Check file permissions:
+   ```bash
+   chmod 755 ~/.config/ssh-x-term
+   ```
+
+**Problem**: "Failed to read key file"
+
+**Solution**:
+1. Use absolute paths for key files: `/home/user/.ssh/id_rsa`
+2. Not relative paths: `~/.ssh/id_rsa` (use full path)
+3. Ensure key file exists and is readable:
+   ```bash
+   ls -l /home/user/.ssh/id_rsa
+   chmod 600 /home/user/.ssh/id_rsa
+   ```
+
+### Getting Help
+
+If you encounter issues not covered here:
+
+1. **Check logs**: `~/.config/ssh-x-term/sxt.log`
+2. **Enable debug logging**:
+   ```bash
+   SSH_X_TERM_LOG=/tmp/sxt-debug.log sxt
+   ```
+
+3. **Report issues**: [GitHub Issues](https://github.com/eugeniofciuvasile/ssh-x-term/issues)
+   - Include OS and version
+   - Include relevant log excerpts
+   - Describe steps to reproduce
+
+4. **Check documentation**:
+   - [FLOW.md](FLOW.md) - Application architecture and state flows
+   - [IMPLEMENTATION.md](IMPLEMENTATION.md) - Technical implementation details
+   - [CONTRIBUTING.md](CONTRIBUTING.md) - Development guidelines
+
 ## Security Notes
 
 - **Local Storage Mode**: Passwords are stored securely using **go-keyring**, which integrates with your system's native credential storage:
