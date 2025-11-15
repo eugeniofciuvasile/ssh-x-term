@@ -2,6 +2,7 @@ package components
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -16,7 +17,6 @@ var (
 				Bold(true).
 				Background(lipgloss.Color("4")).
 				Foreground(lipgloss.Color("255")).
-				Width(100).
 				Align(lipgloss.Center).
 				Padding(0, 1)
 
@@ -24,46 +24,45 @@ var (
 				Bold(true).
 				Background(lipgloss.Color("8")).
 				Foreground(lipgloss.Color("255")).
-				Width(100).
 				Align(lipgloss.Center).
 				Padding(0, 1)
 
 	terminalErrorStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("9")).
-				Width(100).
 				Align(lipgloss.Center).
 				Padding(1, 0)
 )
 
-// SSHSessionMsg is a message containing an SSH session
-type SSHSessionMsg struct {
-	Session *ssh.Session
-	Error   error
+// SSHOutputMsg contains output from the SSH session
+type SSHOutputMsg struct {
+	Data []byte
 }
 
-// startSessionCmd starts an SSH session and returns a message with the result
-func startSessionCmd(connConfig config.SSHConnection) tea.Cmd {
-	return func() tea.Msg {
-		session, err := ssh.NewSession(connConfig)
-		if err != nil {
-			return SSHSessionMsg{nil, err}
-		}
-		return SSHSessionMsg{session, nil}
-	}
+// SSHErrorMsg contains an error from the SSH session
+type SSHErrorMsg struct {
+	Err error
+}
+
+// SSHSessionMsg is a message containing an SSH session
+type SSHSessionMsg struct {
+	Session *ssh.BubbleTeaSession
+	Error   error
 }
 
 // TerminalComponent represents a terminal component for SSH sessions
 type TerminalComponent struct {
 	connection    config.SSHConnection
-	session       *ssh.Session
+	session       *ssh.BubbleTeaSession
+	vterm         *VTerminal
 	status        string
 	error         error
 	loading       bool
 	width         int
 	height        int
-	escapePressed bool
+	finished      bool
 	mutex         sync.Mutex
+	sessionClosed bool
 }
 
 // NewTerminalComponent creates a new terminal component
@@ -77,18 +76,16 @@ func NewTerminalComponent(conn config.SSHConnection) *TerminalComponent {
 
 // Init initializes the component
 func (t *TerminalComponent) Init() tea.Cmd {
-	return startSessionCmd(t.connection)
+	return t.startSession(t.connection, t.width, t.height)
 }
 
 // Update handles component updates
 func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width
 		t.height = msg.Height
+		t.resizeTerminal()
 		return t, nil
 
 	case SSHSessionMsg:
@@ -101,120 +98,225 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.session = msg.Session
 		t.status = "Connected"
 
-		// Start the session in a goroutine
-		go func() {
-			err := t.session.Start()
-			if err != nil {
-				t.mutex.Lock()
-				t.error = err
-				t.status = fmt.Sprintf("Error: %s", err)
-				t.mutex.Unlock()
-			}
-		}()
+		t.createAndStartVTerminal()
+		return t, t.listenForSSHOutput()
 
+	case SSHOutputMsg:
+		if len(msg.Data) > 0 {
+			t.writeToVTerminal(msg.Data)
+		}
+		return t, t.listenForSSHOutput() // Continue listening
+
+	case SSHErrorMsg:
+		t.handleSessionError(msg.Err)
 		return t, nil
 
 	case tea.KeyMsg:
-		if msg.String() == "esc" {
-			t.escapePressed = true
-			// Close the session
-			if t.session != nil {
-				t.session.Close()
-			}
-			return t, nil
-		}
+		return t.handleKey(msg)
+
+	case tea.MouseMsg:
+		t.handleMouse(msg)
+		return t, nil
 	}
 
 	return t, nil
 }
 
-// View renders the component
+// View renders the component.
 func (t *TerminalComponent) View() string {
-	if t.escapePressed {
+	if t.finished {
 		return ""
 	}
 
 	if t.loading {
-		return centeredBox(
-			fmt.Sprintf("Connecting to %s@%s:%d...",
-				t.connection.Username,
-				t.connection.Host,
-				t.connection.Port),
-			t.width,
-			t.height,
-		)
+		return fmt.Sprintf("Connecting to %s@%s:%d...", t.connection.Username, t.connection.Host, t.connection.Port)
 	}
 
 	if t.error != nil {
-		return centeredBox(
-			fmt.Sprintf("Error connecting to %s@%s:%d\n\n%s\n\nPress ESC to return",
-				t.connection.Username,
-				t.connection.Host,
-				t.connection.Port,
-				terminalErrorStyle.Render(t.error.Error())),
-			t.width,
-			t.height,
+		return fmt.Sprintf(
+			"Error connecting to %s@%s:%d\n\n%s\n\nPress ESC to return",
+			t.connection.Username, t.connection.Host, t.connection.Port,
+			terminalErrorStyle.Render(t.error.Error()),
 		)
 	}
 
-	// When connected, we don't actually render anything here
-	// The SSH session takes over the terminal
-	header := terminalHeaderStyle.Width(t.width).Render(
-		fmt.Sprintf("Connected to %s@%s:%d",
-			t.connection.Username,
-			t.connection.Host,
-			t.connection.Port),
-	)
+	header := terminalHeaderStyle.Width(t.width).Render(fmt.Sprintf(
+		"SSH: %s@%s:%d - %s",
+		t.connection.Username, t.connection.Host, t.connection.Port, t.connection.Name,
+	))
 
-	footer := terminalFooterStyle.Width(t.width).Render(
-		"Press ESC to disconnect",
-	)
+	// Calculate space for terminal content relative to header and footer
+	contentHeight := t.height - 2
+	content := ""
+	if t.vterm != nil {
+		content = t.vterm.Render()
+	} else {
+		content = strings.Repeat("\n", contentHeight)
+	}
 
-	content := strings.Repeat("\n", max(t.height-4, 0))
+	// Include scroll indicator if applicable
+	var scrollIndicator string
+	if t.vterm != nil && t.vterm.IsScrolledBack() {
+		scrollIndicator = " [SCROLL]"
+	}
 
-	return fmt.Sprintf("%s\n%s\n%s", header, content, footer)
+	footer := terminalFooterStyle.Width(t.width).Render(t.renderFooter() + scrollIndicator)
+
+	// Combine everything: header, content, footer
+	return strings.Join([]string{header, content, footer}, "\n")
+}
+
+// Utility: Calculate content height
+func (t *TerminalComponent) contentHeight() int {
+	return t.height - 2 // Space for header and footer
+}
+
+// Utility: Resize terminal components dynamically
+func (t *TerminalComponent) resizeTerminal() {
+	contentHeight := t.contentHeight()
+	if t.vterm != nil {
+		t.vterm.Resize(t.width, contentHeight)
+	}
+	if t.session != nil {
+		t.session.Resize(t.width, contentHeight)
+	}
+}
+
+// Utility: Handle session start
+func (t *TerminalComponent) startSession(conn config.SSHConnection, width, height int) tea.Cmd {
+	return func() tea.Msg {
+		if width <= 0 {
+			width = 80
+		}
+		if height <= 0 {
+			height = 24
+		}
+		session, err := ssh.NewBubbleTeaSession(conn, width, height-2)
+		if err != nil {
+			return SSHSessionMsg{nil, err}
+		}
+		return SSHSessionMsg{session, nil}
+	}
+}
+
+// Utility: Create and start the virtual terminal
+func (t *TerminalComponent) createAndStartVTerminal() {
+	t.vterm = NewVTerminal(t.width, t.contentHeight())
+	if err := t.session.Start(); err != nil {
+		t.error = err
+		t.status = fmt.Sprintf("Error: %s", err)
+	}
+}
+
+// Utility: Continuously listen for SSH output
+func (t *TerminalComponent) listenForSSHOutput() tea.Cmd {
+	return func() tea.Msg {
+		buf := make([]byte, 32*1024)
+		n, err := t.session.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				return SSHErrorMsg{fmt.Errorf("session closed")}
+			}
+			return SSHErrorMsg{err}
+		}
+		return SSHOutputMsg{Data: buf[:n]}
+	}
+}
+
+// Utility: Write data to virtual terminal
+func (t *TerminalComponent) writeToVTerminal(data []byte) {
+	t.vterm.Write(data)
+	if !t.vterm.IsScrolledBack() {
+		t.vterm.ScrollToBottom()
+	}
+}
+
+// Utility: Render the footer with helper instructions
+func (t *TerminalComponent) renderFooter() string {
+	if t.sessionClosed {
+		return "Session closed - Press ESC to return"
+	}
+
+	if t.width < 80 {
+		return "ESC: Exit | CTRL+D: EOF | Scroll: PgUp/PgDn"
+	}
+
+	return "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll Vertically | Tab: Complete Command | Mouse: Copy Text"
+}
+
+// Utility: Handle session errors
+func (t *TerminalComponent) handleSessionError(err error) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	t.sessionClosed = true
+	if err.Error() != "session closed" {
+		t.error = err
+		t.status = fmt.Sprintf("Error: %s", err)
+	}
+}
+
+// Utility: Handle key input
+func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		t.finished = true
+		if t.session != nil {
+			t.session.Close()
+		}
+		return t, nil
+
+	case "pgup", "shift+up":
+		t.vterm.ScrollUp(10) // Handle scrolling up
+		return t, nil
+
+	case "pgdown", "shift+down":
+		t.vterm.ScrollDown(10) // Handle scrolling down
+		return t, nil
+
+	default:
+		t.forwardKeyToSession(msg.String())
+	}
+
+	return t, nil
+}
+
+// Utility: Forward keys to SSH session
+func (t *TerminalComponent) forwardKeyToSession(key string) {
+	var data []byte
+	switch key {
+	case "tab":
+		data = []byte{'\t'}
+	case "enter":
+		data = []byte{'\r'}
+	case "backspace", "delete":
+		data = []byte{127}
+	case "up":
+		data = []byte{27, '[', 'A'}
+	case "down":
+		data = []byte{27, '[', 'B'}
+	case "right":
+		data = []byte{27, '[', 'C'}
+	case "left":
+		data = []byte{27, '[', 'D'}
+	default:
+		data = []byte(key)
+	}
+	if t.session != nil {
+		t.session.Write(data)
+	}
+}
+
+// Utility: Handle mouse events
+func (t *TerminalComponent) handleMouse(msg tea.MouseMsg) {
+	if msg.Button == tea.MouseButtonWheelUp {
+		t.vterm.ScrollUp(3)
+	}
+	if msg.Button == tea.MouseButtonWheelDown {
+		t.vterm.ScrollDown(3)
+	}
 }
 
 // IsFinished returns whether the terminal session is finished
 func (t *TerminalComponent) IsFinished() bool {
-	return t.escapePressed
-}
-
-// centeredBox creates a centered box with the given content
-func centeredBox(content string, width, height int) string {
-	lines := strings.Split(content, "\n")
-
-	// Calculate vertical padding
-	contentHeight := len(lines)
-	topPadding := (height - contentHeight) / 2
-	if topPadding < 0 {
-		topPadding = 0
-	}
-
-	// Add padding
-	var result strings.Builder
-	result.WriteString(strings.Repeat("\n", topPadding))
-
-	// Add each line centered
-	for _, line := range lines {
-		// Calculate horizontal padding for this line
-		lineLength := len(line)
-		leftPadding := (width - lineLength) / 2
-		if leftPadding < 0 {
-			leftPadding = 0
-		}
-
-		result.WriteString(strings.Repeat(" ", leftPadding))
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-
-	return result.String()
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	return t.finished
 }

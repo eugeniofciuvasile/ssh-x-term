@@ -3,13 +3,13 @@ module github.com/eugeniofciuvasile/ssh-x-term
 go 1.24.2
 
 require (
+	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbletea v1.3.5
 	golang.org/x/crypto v0.38.0
 )
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
-	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
