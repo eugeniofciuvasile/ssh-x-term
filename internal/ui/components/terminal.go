@@ -158,18 +158,16 @@ func (t *TerminalComponent) View() string {
 		content = t.vterm.Render()
 	}
 
-	// Build terminal footer
-	footer := terminalFooterStyle.Width(t.width).Render(t.renderFooter())
-
-	// Combine everything: header, content, footer
-	return lipgloss.JoinVertical(lipgloss.Left, header, content, footer)
+	// Combine header and content (footer is now handled by main view)
+	return lipgloss.JoinVertical(lipgloss.Left, header, content)
 }
 
 // Utility: Calculate content height
 func (t *TerminalComponent) contentHeight() int {
 	// Terminal now receives the content area size directly from the main view
-	// We still need to subtract the terminal's own header and footer (2 lines total)
-	return t.height - 2
+	// We only need to subtract the terminal's header (1 line)
+	// Footer is now handled by the main view
+	return t.height - 1
 }
 
 // Utility: Resize terminal components dynamically
@@ -320,4 +318,22 @@ func (t *TerminalComponent) handleMouse(msg tea.MouseMsg) {
 // IsFinished returns whether the terminal session is finished
 func (t *TerminalComponent) IsFinished() bool {
 	return t.finished
+}
+
+// IsSessionClosed returns whether the SSH session is closed
+func (t *TerminalComponent) IsSessionClosed() bool {
+	return t.sessionClosed
+}
+
+// IsScrolledBack returns whether the terminal is scrolled back in history
+func (t *TerminalComponent) IsScrolledBack() bool {
+	if t.vterm != nil {
+		return t.vterm.IsScrolledBack()
+	}
+	return false
+}
+
+// GetWidth returns the terminal width
+func (t *TerminalComponent) GetWidth() int {
+	return t.width
 }
