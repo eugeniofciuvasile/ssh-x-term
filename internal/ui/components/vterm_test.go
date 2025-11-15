@@ -357,3 +357,99 @@ func TestVTerminalExtendedASCII(t *testing.T) {
 		t.Error("Expected extended ASCII to be rendered")
 	}
 }
+
+// Test character set designation sequences (fixes htop rendering)
+func TestVTerminalCharacterSetDesignation(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected string
+	}{
+		{
+			name:     "ESC(B - Select ASCII for G0",
+			input:    []byte("\x1B(BF1Help"),
+			expected: "F1Help",
+		},
+		{
+			name:     "ESC)B - Select ASCII for G1",
+			input:    []byte("\x1B)BF2Setup"),
+			expected: "F2Setup",
+		},
+		{
+			name:     "ESC(0 - Select line drawing for G0",
+			input:    []byte("\x1B(0Test\x1B(B"),
+			expected: "Test",
+		},
+		{
+			name:     "Mixed character sets (like htop)",
+			input:    []byte("F1Help  \x1B(BF2Setup \x1B(BF3Search\x1B(BF4Filter"),
+			expected: "F1Help  F2Setup F3SearchF4Filter",
+		},
+		{
+			name:     "ESC*B and ESC+B sequences",
+			input:    []byte("\x1B*B\x1B+BTest"),
+			expected: "Test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vt := NewVTerminal(80, 24)
+			vt.Write(tt.input)
+			output := vt.Render()
+
+			// Check that the expected text appears without the 'B' artifacts
+			if !strings.Contains(output, tt.expected) {
+				t.Errorf("Expected output to contain %q, got: %s", tt.expected, output)
+			}
+
+			// Check that there are no stray 'B' characters where they shouldn't be
+			// (after character set sequences)
+			lines := strings.Split(output, "\n")
+			if len(lines) > 0 {
+				firstLine := strings.TrimSpace(lines[0])
+				// Should not have 'B' immediately after 'F' in function key labels
+				if strings.Contains(firstLine, "FB") || strings.Contains(firstLine, "BF") {
+					// This pattern would indicate the 'B' from ESC(B is being printed
+					if tt.name != "Mixed character sets (like htop)" || !strings.Contains(tt.expected, "BF") {
+						t.Errorf("Found unwanted 'B' character artifacts in output: %s", firstLine)
+					}
+				}
+			}
+		})
+	}
+}
+
+// Test additional escape sequences for completeness
+func TestVTerminalAdditionalEscapeSequences(t *testing.T) {
+	t.Run("ESC D - Index (move down)", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		vt.Write([]byte("Line1\x1BDLine2"))
+		_, y := vt.GetCursorPosition()
+		if y != 1 {
+			t.Errorf("Expected cursor Y at 1 after ESC D, got %d", y)
+		}
+	})
+
+	t.Run("ESC E - Next line (CR + LF)", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		vt.Write([]byte("Test"))
+		vt.Write([]byte("\x1BE"))
+		x, y := vt.GetCursorPosition()
+		if x != 0 || y != 1 {
+			t.Errorf("Expected cursor at (0, 1) after ESC E, got (%d, %d)", x, y)
+		}
+	})
+
+	t.Run("ESC c - Reset terminal", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		vt.Write([]byte("Some text"))
+		vt.Write([]byte("\x1Bc"))
+		output := vt.Render()
+		// After reset, output should be mostly empty
+		nonWhitespace := strings.TrimSpace(output)
+		if len(nonWhitespace) > 0 {
+			t.Errorf("Expected empty output after reset, got: %q", nonWhitespace)
+		}
+	})
+}
