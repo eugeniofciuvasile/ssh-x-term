@@ -235,6 +235,15 @@ func (vt *VTerminal) isEscapeComplete() bool {
 		return false
 	}
 
+	// Character set designation sequences: ESC ( <char>, ESC ) <char>, ESC * <char>, ESC + <char>
+	if len(vt.escapeSeq) >= 2 {
+		secondByte := vt.escapeSeq[1]
+		if secondByte == '(' || secondByte == ')' || secondByte == '*' || secondByte == '+' {
+			// Need 3 bytes for character set designation
+			return len(vt.escapeSeq) >= 3
+		}
+	}
+
 	// Other simple sequences: ESC <char>
 	return len(vt.escapeSeq) >= 2
 }
@@ -256,18 +265,41 @@ func (vt *VTerminal) handleEscapeSequence() {
 		return
 	}
 
+	// Character set designation sequences: ESC ( <char>, ESC ) <char>, ESC * <char>, ESC + <char>
+	// These are used to switch between character sets (ASCII, line drawing, etc.)
+	// For example: ESC(B = select ASCII for G0, ESC(0 = select line drawing for G0
+	if len(vt.escapeSeq) >= 3 {
+		secondByte := vt.escapeSeq[1]
+		if secondByte == '(' || secondByte == ')' || secondByte == '*' || secondByte == '+' {
+			// Character set designation - silently ignore for now
+			// In a full implementation, we would track the character set and use it
+			// for proper rendering of line drawing characters (box drawing, etc.)
+			// Common values: 'B' = ASCII, '0' = DEC Special Graphics, 'A' = UK charset
+			return
+		}
+	}
+
 	// Simple escape sequences
 	switch vt.escapeSeq[1] {
 	case 'M': // Reverse index (move up)
 		if vt.cursorY > 0 {
 			vt.cursorY--
 		}
-	case '7': // Save cursor position
+	case '7': // Save cursor position (DECSC)
 		vt.savedCursorX = vt.cursorX
 		vt.savedCursorY = vt.cursorY
-	case '8': // Restore cursor position
+	case '8': // Restore cursor position (DECRC)
 		vt.cursorX = vt.savedCursorX
 		vt.cursorY = vt.savedCursorY
+	case 'D': // Index (move down, scroll if at bottom) - IND
+		vt.newLine()
+	case 'E': // Next line (CR + LF) - NEL
+		vt.cursorX = 0
+		vt.newLine()
+	case 'H': // Tab set - HTS (ignore for now)
+		// Would set a tab stop at current cursor position
+	case 'c': // Reset (RIS) - full reset
+		vt.clearInternal() // Use internal version to avoid deadlock
 	}
 }
 
@@ -760,6 +792,11 @@ func (vt *VTerminal) ScrollToBottom() {
 func (vt *VTerminal) Clear() {
 	vt.mutex.Lock()
 	defer vt.mutex.Unlock()
+	vt.clearInternal()
+}
+
+// clearInternal clears the terminal buffer without locking (for internal use)
+func (vt *VTerminal) clearInternal() {
 	vt.initBuffer()
 	vt.cursorX = 0
 	vt.cursorY = 0
