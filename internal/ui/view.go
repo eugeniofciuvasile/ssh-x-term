@@ -43,9 +43,9 @@ func (m *Model) View() string {
 	// Footer: 1 line for help text
 	// Content: remaining space
 	
-	headerHeight := 1
-	footerHeight := 1
-	contentHeight := m.height - headerHeight - footerHeight
+	headerHeightLines := 1
+	footerHeightLines := 1
+	contentHeight := m.height - headerHeightLines - footerHeightLines
 	if contentHeight < 3 {
 		contentHeight = 3
 	}
@@ -90,6 +90,16 @@ func (m *Model) View() string {
 	}
 
 	content := contentBuilder.String()
+	
+	// For terminal state, ensure content fills the available space
+	// The terminal component already includes its own header and footer
+	if m.state == StateSSHTerminal {
+		// Terminal content should already fill the space, just ensure proper height
+		content = lipgloss.NewStyle().
+			Height(contentHeight).
+			Width(m.width).
+			Render(content)
+	}
 
 	// Render footer with help text
 	footerText := m.getHelpText()

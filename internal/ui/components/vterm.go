@@ -488,6 +488,7 @@ func (vt *VTerminal) Render() string {
 	defer vt.mutex.RUnlock()
 
 	var buf bytes.Buffer
+	linesRendered := 0
 
 	startLine := 0
 	endLine := vt.height
@@ -504,6 +505,7 @@ func (vt *VTerminal) Render() string {
 		for i := scrollbackStart; i < scrollbackLen && (i-scrollbackStart) < vt.height; i++ {
 			buf.WriteString(string(vt.scrollback[i]))
 			buf.WriteRune('\n')
+			linesRendered++
 		}
 
 		// Fill remaining lines with buffer if needed
@@ -511,13 +513,22 @@ func (vt *VTerminal) Render() string {
 		for i := 0; i < remainingLines && i < len(vt.buffer); i++ {
 			buf.WriteString(string(vt.buffer[i]))
 			buf.WriteRune('\n')
+			linesRendered++
 		}
 	} else {
 		// Show current buffer
 		for i := startLine; i < endLine && i < len(vt.buffer); i++ {
 			buf.WriteString(string(vt.buffer[i]))
 			buf.WriteRune('\n')
+			linesRendered++
 		}
+	}
+
+	// Fill any remaining lines with empty space to ensure we use the full height
+	for linesRendered < vt.height {
+		buf.WriteString(strings.Repeat(" ", vt.width))
+		buf.WriteRune('\n')
+		linesRendered++
 	}
 
 	return buf.String()
