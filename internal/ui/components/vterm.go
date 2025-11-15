@@ -127,24 +127,39 @@ func (vt *VTerminal) processByte(b byte) {
 
 	// Handle control characters
 	switch b {
-	case '\r': // Carriage return
+	case 0x00: // NUL - ignore
+		// Do nothing
+	case 0x0D: // Carriage return (CR, CTRL+M, '\r')
 		vt.cursorX = 0
-	case '\n': // Line feed
+	case 0x0A: // Line feed (LF, CTRL+J, '\n')
 		vt.newLine()
-	case '\b': // Backspace
+	case 0x08: // Backspace (BS, CTRL+H, '\b')
 		if vt.cursorX > 0 {
 			vt.cursorX--
 		}
-	case '\t': // Tab
+	case 0x09: // Tab (HT, CTRL+I, '\t')
 		vt.cursorX = (vt.cursorX + 8) & ^7
 		if vt.cursorX >= vt.width {
 			vt.cursorX = vt.width - 1
 		}
-	case 0x07: // Bell - ignore
+	case 0x07: // Bell (BEL, CTRL+G) - ignore
+		// Do nothing - bell sound not supported in TUI
+	case 0x0C: // Form feed (FF, CTRL+L) - typically used for clear screen
+		// Some programs use FF as clear screen, we'll just move to new line
+		vt.newLine()
+	case 0x0B: // Vertical tab (VT) - treat as line feed
+		vt.newLine()
+	case 0x0E, 0x0F: // Shift Out/Shift In - character set switching, ignore for now
+		// These are used for alternate character sets, not commonly used in modern terminals
 	default:
-		if b >= 32 { // Printable character
+		if b >= 32 && b < 127 { // Printable ASCII characters
+			vt.putChar(rune(b))
+		} else if b >= 128 { // Extended ASCII / UTF-8
+			// For proper UTF-8 support, we need to handle multi-byte sequences
+			// For now, just render as-is for single byte extended characters
 			vt.putChar(rune(b))
 		}
+		// Ignore other control characters (0x01-0x1F) that we don't explicitly handle
 	}
 }
 
@@ -351,6 +366,68 @@ func (vt *VTerminal) handleCSI() {
 		}
 		vt.eraseLine(mode)
 
+	case 'L': // Insert lines
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.insertLines(n)
+
+	case 'M': // Delete lines
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.deleteLines(n)
+
+	case 'P': // Delete characters
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.deleteChars(n)
+
+	case 'X': // Erase characters (without moving cursor)
+		n := 1
+		if len(args) > 0 && args[0] > 0 {
+			n = args[0]
+		}
+		vt.eraseChars(n)
+
+	case 'd': // Vertical position absolute
+		row := 1
+		if len(args) > 0 && args[0] > 0 {
+			row = args[0]
+		}
+		vt.cursorY = row - 1
+		if vt.cursorY < 0 {
+			vt.cursorY = 0
+		}
+		if vt.cursorY >= vt.height {
+			vt.cursorY = vt.height - 1
+		}
+
+	case 'G', '`': // Horizontal position absolute
+		col := 1
+		if len(args) > 0 && args[0] > 0 {
+			col = args[0]
+		}
+		vt.cursorX = col - 1
+		if vt.cursorX < 0 {
+			vt.cursorX = 0
+		}
+		if vt.cursorX >= vt.width {
+			vt.cursorX = vt.width - 1
+		}
+
+	case 's': // Save cursor position (ANSI.SYS)
+		vt.savedCursorX = vt.cursorX
+		vt.savedCursorY = vt.cursorY
+
+	case 'u': // Restore cursor position (ANSI.SYS)
+		vt.cursorX = vt.savedCursorX
+		vt.cursorY = vt.savedCursorY
+
 	case 'm': // SGR - Select Graphic Rendition
 		vt.handleSGR(args)
 	}
@@ -462,6 +539,107 @@ func (vt *VTerminal) handleSGR(args []int) {
 		case 49: // Default background
 			vt.attrs.bgColor = -1
 		}
+	}
+}
+
+// insertLines inserts n blank lines at cursor position, scrolling down
+func (vt *VTerminal) insertLines(n int) {
+	if vt.cursorY >= vt.height || n <= 0 {
+		return
+	}
+	
+	// Limit n to available space
+	if vt.cursorY+n > vt.height {
+		n = vt.height - vt.cursorY
+	}
+	
+	// Move existing lines down
+	for i := vt.height - 1; i >= vt.cursorY+n; i-- {
+		if i < len(vt.buffer) && i-n < len(vt.buffer) && i-n >= 0 {
+			copy(vt.buffer[i], vt.buffer[i-n])
+		}
+	}
+	
+	// Clear the inserted lines
+	for i := 0; i < n && vt.cursorY+i < vt.height; i++ {
+		if vt.cursorY+i < len(vt.buffer) {
+			for x := 0; x < vt.width; x++ {
+				if x < len(vt.buffer[vt.cursorY+i]) {
+					vt.buffer[vt.cursorY+i][x] = ' '
+				}
+			}
+		}
+	}
+}
+
+// deleteLines deletes n lines at cursor position, scrolling up
+func (vt *VTerminal) deleteLines(n int) {
+	if vt.cursorY >= vt.height || n <= 0 {
+		return
+	}
+	
+	// Limit n to available lines
+	if vt.cursorY+n > vt.height {
+		n = vt.height - vt.cursorY
+	}
+	
+	// Move lines up
+	for i := vt.cursorY; i < vt.height-n; i++ {
+		if i < len(vt.buffer) && i+n < len(vt.buffer) {
+			copy(vt.buffer[i], vt.buffer[i+n])
+		}
+	}
+	
+	// Clear the bottom lines
+	for i := vt.height - n; i < vt.height; i++ {
+		if i >= 0 && i < len(vt.buffer) {
+			for x := 0; x < vt.width; x++ {
+				if x < len(vt.buffer[i]) {
+					vt.buffer[i][x] = ' '
+				}
+			}
+		}
+	}
+}
+
+// deleteChars deletes n characters at cursor position, shifting line left
+func (vt *VTerminal) deleteChars(n int) {
+	if vt.cursorY >= len(vt.buffer) || n <= 0 {
+		return
+	}
+	
+	line := vt.buffer[vt.cursorY]
+	if vt.cursorX >= len(line) {
+		return
+	}
+	
+	// Limit n to remaining characters on line
+	if vt.cursorX+n > len(line) {
+		n = len(line) - vt.cursorX
+	}
+	
+	// Shift characters left
+	for i := vt.cursorX; i < len(line)-n; i++ {
+		line[i] = line[i+n]
+	}
+	
+	// Fill the end with spaces
+	for i := len(line) - n; i < len(line); i++ {
+		line[i] = ' '
+	}
+}
+
+// eraseChars erases n characters at cursor position (replaces with spaces)
+func (vt *VTerminal) eraseChars(n int) {
+	if vt.cursorY >= len(vt.buffer) || n <= 0 {
+		return
+	}
+	
+	line := vt.buffer[vt.cursorY]
+	
+	// Erase up to n characters or end of line
+	for i := 0; i < n && vt.cursorX+i < len(line); i++ {
+		line[vt.cursorX+i] = ' '
 	}
 }
 
