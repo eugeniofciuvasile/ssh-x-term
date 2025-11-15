@@ -223,7 +223,7 @@ func TestVTerminalCSISequences(t *testing.T) {
 		// Restore cursor (back to 5,0)
 		vt.Write([]byte("\x1B[u"))
 		vt.Write([]byte("!"))
-		
+
 		output := vt.Render()
 		if !strings.Contains(output, "Hello") {
 			t.Errorf("Expected output to contain 'Hello', got: %s", output)
@@ -236,7 +236,7 @@ func TestVTerminalCSISequences(t *testing.T) {
 		// Move to line 3
 		vt.Write([]byte("\x1B[3d"))
 		vt.Write([]byte("Line3"))
-		
+
 		_, y := vt.GetCursorPosition()
 		if y != 2 { // 0-indexed, so line 3 is y=2
 			t.Errorf("Expected cursor Y at 2, got %d", y)
@@ -248,7 +248,7 @@ func TestVTerminalCSISequences(t *testing.T) {
 		// Move to column 10
 		vt.Write([]byte("\x1B[10G"))
 		vt.Write([]byte("X"))
-		
+
 		x, _ := vt.GetCursorPosition()
 		if x != 10 {
 			t.Errorf("Expected cursor X at 10, got %d", x)
@@ -262,7 +262,7 @@ func TestVTerminalCSISequences(t *testing.T) {
 		vt.Write([]byte("\x1B[5D"))
 		// Erase 5 characters
 		vt.Write([]byte("\x1B[5X"))
-		
+
 		output := vt.Render()
 		// Should have "Hello     " (5 spaces where "World" was)
 		if !strings.Contains(output, "Hello") {
@@ -277,7 +277,7 @@ func TestVTerminalCSISequences(t *testing.T) {
 		vt.Write([]byte("\x1B[1;6H"))
 		// Delete 3 characters (removes "Wor", shifts "ld" left)
 		vt.Write([]byte("\x1B[3P"))
-		
+
 		output := vt.Render()
 		if !strings.Contains(output, "Hellold") {
 			t.Errorf("Expected output to contain 'Hellold', got: %s", output)
@@ -291,7 +291,7 @@ func TestVTerminalCSISequences(t *testing.T) {
 		vt.Write([]byte("\x1B[2;1H"))
 		// Insert 1 line (pushes Line2 and Line3 down)
 		vt.Write([]byte("\x1B[1L"))
-		
+
 		output := vt.Render()
 		if !strings.Contains(output, "Line1") {
 			t.Errorf("Expected output to contain 'Line1', got: %s", output)
@@ -305,7 +305,7 @@ func TestVTerminalCSISequences(t *testing.T) {
 		vt.Write([]byte("\x1B[2;1H"))
 		// Delete 1 line (removes Line2, pulls Line3 up)
 		vt.Write([]byte("\x1B[1M"))
-		
+
 		output := vt.Render()
 		if !strings.Contains(output, "Line1") {
 			t.Errorf("Expected output to contain 'Line1', got: %s", output)
@@ -319,14 +319,14 @@ func TestVTerminalCSISequences(t *testing.T) {
 // Test that all control characters are properly ignored or handled
 func TestVTerminalAllControlCharacters(t *testing.T) {
 	vt := NewVTerminal(80, 24)
-	
+
 	// Test NUL character (should be ignored)
 	vt.Write([]byte("Hello\x00World"))
 	output := vt.Render()
 	if !strings.Contains(output, "HelloWorld") {
 		t.Errorf("Expected NUL to be ignored, got: %s", output)
 	}
-	
+
 	// Test Bell (should be ignored)
 	vt.Clear()
 	vt.Write([]byte("Test\x07Text"))
@@ -334,7 +334,7 @@ func TestVTerminalAllControlCharacters(t *testing.T) {
 	if !strings.Contains(output, "TestText") {
 		t.Errorf("Expected Bell to be ignored, got: %s", output)
 	}
-	
+
 	// Test other control characters are safely ignored
 	vt.Clear()
 	vt.Write([]byte("A\x01\x02\x03B")) // Various control chars
@@ -347,11 +347,11 @@ func TestVTerminalAllControlCharacters(t *testing.T) {
 // Test extended ASCII characters
 func TestVTerminalExtendedASCII(t *testing.T) {
 	vt := NewVTerminal(80, 24)
-	
+
 	// Write some extended ASCII characters
 	vt.Write([]byte{0xC1, 0xC2, 0xC3}) // Extended ASCII
 	output := vt.Render()
-	
+
 	// Should not panic and should render something
 	if len(strings.TrimSpace(output)) == 0 {
 		t.Error("Expected extended ASCII to be rendered")

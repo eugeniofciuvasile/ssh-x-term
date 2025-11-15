@@ -51,18 +51,18 @@ type SSHSessionMsg struct {
 
 // TerminalComponent represents a terminal component for SSH sessions
 type TerminalComponent struct {
-	connection       config.SSHConnection
-	session          *ssh.BubbleTeaSession
-	vterm            *VTerminal
-	status           string
-	error            error
-	loading          bool
-	width            int
-	height           int
-	finished         bool
-	mutex            sync.Mutex
-	sessionClosed    bool
-	sessionStarted   bool // Track if session has been initiated
+	connection     config.SSHConnection
+	session        *ssh.BubbleTeaSession
+	vterm          *VTerminal
+	status         string
+	error          error
+	loading        bool
+	width          int
+	height         int
+	finished       bool
+	mutex          sync.Mutex
+	sessionClosed  bool
+	sessionStarted bool // Track if session has been initiated
 }
 
 // NewTerminalComponent creates a new terminal component
@@ -87,13 +87,13 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width
 		t.height = msg.Height
-		
+
 		// If session not started yet, start it now with proper dimensions
 		if !t.sessionStarted && !t.finished && t.error == nil {
 			t.sessionStarted = true
 			return t, t.startSession(t.connection, t.width, t.height)
 		}
-		
+
 		// Otherwise just resize
 		t.resizeTerminal()
 		return t, nil
@@ -155,12 +155,12 @@ func (t *TerminalComponent) View() string {
 		"SSH: %s@%s:%d - %s",
 		t.connection.Username, t.connection.Host, t.connection.Port, t.connection.Name,
 	)
-	
+
 	// Include scroll indicator if applicable
 	if t.vterm != nil && t.vterm.IsScrolledBack() {
 		headerText += " [SCROLL]"
 	}
-	
+
 	header := terminalHeaderStyle.Width(t.width).Render(headerText)
 
 	// Get terminal content
@@ -302,7 +302,7 @@ func (t *TerminalComponent) forwardKeyToSession(key string) {
 		data = []byte{'\r'}
 	case "backspace", "delete":
 		data = []byte{127}
-	
+
 	// Arrow keys (ANSI escape sequences)
 	case "up":
 		data = []byte{27, '[', 'A'}
@@ -312,19 +312,19 @@ func (t *TerminalComponent) forwardKeyToSession(key string) {
 		data = []byte{27, '[', 'C'}
 	case "left":
 		data = []byte{27, '[', 'D'}
-	
+
 	// Home/End keys
 	case "home":
 		data = []byte{27, '[', 'H'}
 	case "end":
 		data = []byte{27, '[', 'F'}
-	
+
 	// Page Up/Page Down (when not used for scrolling)
 	case "pgup":
 		data = []byte{27, '[', '5', '~'}
 	case "pgdown":
 		data = []byte{27, '[', '6', '~'}
-	
+
 	// Function keys
 	case "f1":
 		data = []byte{27, 'O', 'P'}
@@ -350,7 +350,7 @@ func (t *TerminalComponent) forwardKeyToSession(key string) {
 		data = []byte{27, '[', '2', '3', '~'}
 	case "f12":
 		data = []byte{27, '[', '2', '4', '~'}
-	
+
 	// Control keys - the most important additions for proper terminal interaction
 	case "ctrl+@", "ctrl+space":
 		data = []byte{0x00} // NUL
@@ -416,7 +416,7 @@ func (t *TerminalComponent) forwardKeyToSession(key string) {
 		data = []byte{0x1E} // Record separator
 	case "ctrl+_", "ctrl+/":
 		data = []byte{0x1F} // Undo
-	
+
 	// Alt/Meta key combinations (send ESC prefix)
 	case "alt+b", "meta+b":
 		data = []byte{27, 'b'} // Back one word
@@ -426,7 +426,7 @@ func (t *TerminalComponent) forwardKeyToSession(key string) {
 		data = []byte{27, 'd'} // Delete word forward
 	case "alt+backspace", "meta+backspace":
 		data = []byte{27, 0x7F} // Delete word backward
-	
+
 	default:
 		// For regular characters, just send them as-is
 		data = []byte(key)

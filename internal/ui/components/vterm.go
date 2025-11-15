@@ -547,19 +547,19 @@ func (vt *VTerminal) insertLines(n int) {
 	if vt.cursorY >= vt.height || n <= 0 {
 		return
 	}
-	
+
 	// Limit n to available space
 	if vt.cursorY+n > vt.height {
 		n = vt.height - vt.cursorY
 	}
-	
+
 	// Move existing lines down
 	for i := vt.height - 1; i >= vt.cursorY+n; i-- {
 		if i < len(vt.buffer) && i-n < len(vt.buffer) && i-n >= 0 {
 			copy(vt.buffer[i], vt.buffer[i-n])
 		}
 	}
-	
+
 	// Clear the inserted lines
 	for i := 0; i < n && vt.cursorY+i < vt.height; i++ {
 		if vt.cursorY+i < len(vt.buffer) {
@@ -577,19 +577,19 @@ func (vt *VTerminal) deleteLines(n int) {
 	if vt.cursorY >= vt.height || n <= 0 {
 		return
 	}
-	
+
 	// Limit n to available lines
 	if vt.cursorY+n > vt.height {
 		n = vt.height - vt.cursorY
 	}
-	
+
 	// Move lines up
 	for i := vt.cursorY; i < vt.height-n; i++ {
 		if i < len(vt.buffer) && i+n < len(vt.buffer) {
 			copy(vt.buffer[i], vt.buffer[i+n])
 		}
 	}
-	
+
 	// Clear the bottom lines
 	for i := vt.height - n; i < vt.height; i++ {
 		if i >= 0 && i < len(vt.buffer) {
@@ -607,22 +607,22 @@ func (vt *VTerminal) deleteChars(n int) {
 	if vt.cursorY >= len(vt.buffer) || n <= 0 {
 		return
 	}
-	
+
 	line := vt.buffer[vt.cursorY]
 	if vt.cursorX >= len(line) {
 		return
 	}
-	
+
 	// Limit n to remaining characters on line
 	if vt.cursorX+n > len(line) {
 		n = len(line) - vt.cursorX
 	}
-	
+
 	// Shift characters left
 	for i := vt.cursorX; i < len(line)-n; i++ {
 		line[i] = line[i+n]
 	}
-	
+
 	// Fill the end with spaces
 	for i := len(line) - n; i < len(line); i++ {
 		line[i] = ' '
@@ -634,9 +634,9 @@ func (vt *VTerminal) eraseChars(n int) {
 	if vt.cursorY >= len(vt.buffer) || n <= 0 {
 		return
 	}
-	
+
 	line := vt.buffer[vt.cursorY]
-	
+
 	// Erase up to n characters or end of line
 	for i := 0; i < n && vt.cursorX+i < len(line); i++ {
 		line[vt.cursorX+i] = ' '
