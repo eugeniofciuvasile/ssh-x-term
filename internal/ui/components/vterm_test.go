@@ -344,17 +344,27 @@ func TestVTerminalAllControlCharacters(t *testing.T) {
 	}
 }
 
-// Test extended ASCII characters
+// Test extended ASCII and UTF-8 characters
 func TestVTerminalExtendedASCII(t *testing.T) {
 	vt := NewVTerminal(80, 24)
 
-	// Write some extended ASCII characters
-	vt.Write([]byte{0xC1, 0xC2, 0xC3}) // Extended ASCII
+	// Test valid UTF-8 characters (not just raw bytes)
+	// Use proper UTF-8 encoded strings
+	vt.Write([]byte("Test ❤ UTF-8 ⢿ 中文"))
 	output := vt.Render()
 
-	// Should not panic and should render something
-	if len(strings.TrimSpace(output)) == 0 {
-		t.Error("Expected extended ASCII to be rendered")
+	// Should not panic and should render the ASCII part at minimum
+	if !strings.Contains(output, "Test") {
+		t.Error("Expected at least ASCII text to be rendered")
+	}
+
+	// Test that invalid UTF-8 sequences don't crash
+	vt2 := NewVTerminal(80, 24)
+	vt2.Write([]byte{0xC1, 0xC2, 0xC3}) // Invalid UTF-8
+	vt2.Write([]byte("Valid"))          // Follow with valid ASCII
+	output2 := vt2.Render()
+	if !strings.Contains(output2, "Valid") {
+		t.Error("Expected valid ASCII to be rendered after invalid UTF-8")
 	}
 }
 
@@ -450,6 +460,93 @@ func TestVTerminalAdditionalEscapeSequences(t *testing.T) {
 		nonWhitespace := strings.TrimSpace(output)
 		if len(nonWhitespace) > 0 {
 			t.Errorf("Expected empty output after reset, got: %q", nonWhitespace)
+		}
+	})
+}
+
+// Test UTF-8 multi-byte character handling
+func TestVTerminalUTF8Handling(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected string
+	}{
+		{
+			name:     "Simple ASCII",
+			input:    []byte("Hello"),
+			expected: "Hello",
+		},
+		{
+			name:     "2-byte UTF-8 (é)",
+			input:    []byte{0xC3, 0xA9}, // é
+			expected: "é",
+		},
+		{
+			name:     "3-byte UTF-8 (⢿ - Braille pattern)",
+			input:    []byte{0xE2, 0xA2, 0xBF}, // ⢿ (used in docker progress bars)
+			expected: "⢿",
+		},
+		{
+			name:     "3-byte UTF-8 (中)",
+			input:    []byte{0xE4, 0xB8, 0xAD}, // 中
+			expected: "中",
+		},
+		{
+			name:     "4-byte UTF-8 (emoji 😀)",
+			input:    []byte{0xF0, 0x9F, 0x98, 0x80}, // 😀
+			expected: "😀",
+		},
+		{
+			name:     "Mixed ASCII and UTF-8",
+			input:    []byte("Test⢿Box━Line"),
+			expected: "Test⢿Box━Line",
+		},
+		{
+			name:     "Docker-style progress with braille",
+			input:    []byte("[⢿⢿⢿⢿⢿⢿⢿⢿⢿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀]"),
+			expected: "[⢿⢿⢿⢿⢿⢿⢿⢿⢿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vt := NewVTerminal(80, 24)
+			vt.Write(tt.input)
+			output := vt.Render()
+
+			if !strings.Contains(output, tt.expected) {
+				t.Errorf("Expected output to contain %q, got: %s", tt.expected, output)
+			}
+		})
+	}
+}
+
+// Test that incomplete UTF-8 sequences are handled gracefully
+func TestVTerminalIncompleteUTF8(t *testing.T) {
+	t.Run("Incomplete 3-byte UTF-8 followed by complete sequence", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		// Send first 2 bytes of a 3-byte UTF-8 sequence
+		vt.Write([]byte{0xE2, 0xA2})
+		// Send a complete ASCII character
+		vt.Write([]byte("X"))
+		// The incomplete UTF-8 should be discarded, X should appear
+		output := vt.Render()
+		if !strings.Contains(output, "X") {
+			t.Error("Expected 'X' to be rendered after incomplete UTF-8")
+		}
+	})
+
+	t.Run("Control character resets UTF-8 buffer", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		// Send first byte of UTF-8 sequence
+		vt.Write([]byte{0xE2})
+		// Send newline (control character)
+		vt.Write([]byte("\n"))
+		// Send complete text
+		vt.Write([]byte("Test"))
+		output := vt.Render()
+		if !strings.Contains(output, "Test") {
+			t.Error("Expected 'Test' to be rendered after control character reset UTF-8 buffer")
 		}
 	})
 }
