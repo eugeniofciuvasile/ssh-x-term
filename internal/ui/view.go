@@ -119,6 +119,19 @@ func (m *Model) getHelpText() string {
 	case StateConnectionList:
 		return "a: add | e: edit | d: delete | o: toggle new terminal | enter: connect | ctrl+c: quit"
 	case StateSSHTerminal:
+		// Get detailed help text from terminal component
+		if m.terminal != nil {
+			if m.terminal.IsSessionClosed() {
+				return "Session closed - Press ESC to return"
+			}
+			
+			// Show detailed help for wider terminals, compact for narrow
+			if m.terminal.GetWidth() < 80 || m.width < 80 {
+				return "ESC: Exit | CTRL+D: EOF | Scroll: PgUp/PgDn"
+			}
+			
+			return "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll Vertically | Tab: Complete Command | Mouse: Copy Text"
+		}
 		return "esc: disconnect"
 	case StateSelectStorage:
 		return "↑/↓: navigate | enter: select | ctrl+c: quit"
