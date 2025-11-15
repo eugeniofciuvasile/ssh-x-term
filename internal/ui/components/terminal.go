@@ -3,7 +3,6 @@ package components
 import (
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,17 +51,18 @@ type SSHSessionMsg struct {
 
 // TerminalComponent represents a terminal component for SSH sessions
 type TerminalComponent struct {
-	connection    config.SSHConnection
-	session       *ssh.BubbleTeaSession
-	vterm         *VTerminal
-	status        string
-	error         error
-	loading       bool
-	width         int
-	height        int
-	finished      bool
-	mutex         sync.Mutex
-	sessionClosed bool
+	connection       config.SSHConnection
+	session          *ssh.BubbleTeaSession
+	vterm            *VTerminal
+	status           string
+	error            error
+	loading          bool
+	width            int
+	height           int
+	finished         bool
+	mutex            sync.Mutex
+	sessionClosed    bool
+	sessionStarted   bool // Track if session has been initiated
 }
 
 // NewTerminalComponent creates a new terminal component
@@ -76,7 +76,9 @@ func NewTerminalComponent(conn config.SSHConnection) *TerminalComponent {
 
 // Init initializes the component
 func (t *TerminalComponent) Init() tea.Cmd {
-	return t.startSession(t.connection, t.width, t.height)
+	// Don't start session yet if we don't have dimensions
+	// Wait for WindowSizeMsg to arrive first
+	return nil
 }
 
 // Update handles component updates
@@ -85,6 +87,14 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width
 		t.height = msg.Height
+		
+		// If session not started yet, start it now with proper dimensions
+		if !t.sessionStarted && !t.finished && t.error == nil {
+			t.sessionStarted = true
+			return t, t.startSession(t.connection, t.width, t.height)
+		}
+		
+		// Otherwise just resize
 		t.resizeTerminal()
 		return t, nil
 
@@ -129,46 +139,46 @@ func (t *TerminalComponent) View() string {
 	}
 
 	if t.loading {
-		return fmt.Sprintf("Connecting to %s@%s:%d...", t.connection.Username, t.connection.Host, t.connection.Port)
+		return fmt.Sprintf("\nConnecting to %s@%s:%d...\n", t.connection.Username, t.connection.Host, t.connection.Port)
 	}
 
 	if t.error != nil {
 		return fmt.Sprintf(
-			"Error connecting to %s@%s:%d\n\n%s\n\nPress ESC to return",
+			"\nError connecting to %s@%s:%d\n\n%s\n",
 			t.connection.Username, t.connection.Host, t.connection.Port,
 			terminalErrorStyle.Render(t.error.Error()),
 		)
 	}
 
-	header := terminalHeaderStyle.Width(t.width).Render(fmt.Sprintf(
+	// Build terminal header
+	headerText := fmt.Sprintf(
 		"SSH: %s@%s:%d - %s",
 		t.connection.Username, t.connection.Host, t.connection.Port, t.connection.Name,
-	))
+	)
+	
+	// Include scroll indicator if applicable
+	if t.vterm != nil && t.vterm.IsScrolledBack() {
+		headerText += " [SCROLL]"
+	}
+	
+	header := terminalHeaderStyle.Width(t.width).Render(headerText)
 
-	// Calculate space for terminal content relative to header and footer
-	contentHeight := t.height - 2
+	// Get terminal content
 	content := ""
 	if t.vterm != nil {
 		content = t.vterm.Render()
-	} else {
-		content = strings.Repeat("\n", contentHeight)
 	}
 
-	// Include scroll indicator if applicable
-	var scrollIndicator string
-	if t.vterm != nil && t.vterm.IsScrolledBack() {
-		scrollIndicator = " [SCROLL]"
-	}
-
-	footer := terminalFooterStyle.Width(t.width).Render(t.renderFooter() + scrollIndicator)
-
-	// Combine everything: header, content, footer
-	return strings.Join([]string{header, content, footer}, "\n")
+	// Combine header and content (footer is now handled by main view)
+	return lipgloss.JoinVertical(lipgloss.Left, header, content)
 }
 
 // Utility: Calculate content height
 func (t *TerminalComponent) contentHeight() int {
-	return t.height - 2 // Space for header and footer
+	// Terminal now receives the content area size directly from the main view
+	// We only need to subtract the terminal's header (1 line)
+	// Footer is now handled by the main view
+	return t.height - 1
 }
 
 // Utility: Resize terminal components dynamically
@@ -191,7 +201,8 @@ func (t *TerminalComponent) startSession(conn config.SSHConnection, width, heigh
 		if height <= 0 {
 			height = 24
 		}
-		session, err := ssh.NewBubbleTeaSession(conn, width, height-2)
+		// Only subtract 1 for the terminal header (footer is now in main view)
+		session, err := ssh.NewBubbleTeaSession(conn, width, height-1)
 		if err != nil {
 			return SSHSessionMsg{nil, err}
 		}
@@ -319,4 +330,22 @@ func (t *TerminalComponent) handleMouse(msg tea.MouseMsg) {
 // IsFinished returns whether the terminal session is finished
 func (t *TerminalComponent) IsFinished() bool {
 	return t.finished
+}
+
+// IsSessionClosed returns whether the SSH session is closed
+func (t *TerminalComponent) IsSessionClosed() bool {
+	return t.sessionClosed
+}
+
+// IsScrolledBack returns whether the terminal is scrolled back in history
+func (t *TerminalComponent) IsScrolledBack() bool {
+	if t.vterm != nil {
+		return t.vterm.IsScrolledBack()
+	}
+	return false
+}
+
+// GetWidth returns the terminal width
+func (t *TerminalComponent) GetWidth() int {
+	return t.width
 }

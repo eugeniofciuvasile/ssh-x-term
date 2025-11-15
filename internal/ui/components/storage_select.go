@@ -12,11 +12,23 @@ const (
 	StorageBitwarden
 )
 
+var (
+	storageSelectStyle = lipgloss.NewStyle().
+				Padding(1, 2)
+
+	storageSelectTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("205")).
+				MarginBottom(1)
+)
+
 type StorageSelect struct {
 	options       []string
 	selectedIndex int
 	chosen        bool
 	canceled      bool
+	width         int
+	height        int
 }
 
 func NewStorageSelect() *StorageSelect {
@@ -31,6 +43,10 @@ func (s *StorageSelect) Init() tea.Cmd {
 
 func (s *StorageSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		s.width = msg.Width
+		s.height = msg.Height
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
@@ -53,7 +69,12 @@ func (s *StorageSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (s *StorageSelect) View() string {
-	out := "Choose storage backend:\n\n"
+	var content string
+	
+	// Title
+	content += storageSelectTitleStyle.Render("Choose storage backend:") + "\n\n"
+	
+	// Options
 	for i, opt := range s.options {
 		style := lipgloss.NewStyle()
 		prefix := "  "
@@ -61,10 +82,12 @@ func (s *StorageSelect) View() string {
 			style = style.Bold(true).Foreground(lipgloss.Color("205"))
 			prefix = "> "
 		}
-		out += style.Render(prefix+opt) + "\n"
+		content += style.Render(prefix+opt) + "\n"
 	}
-	out += "\n(Use ↑/↓ and Enter)"
-	return out
+	
+	content += "\n"
+	
+	return storageSelectStyle.Render(content)
 }
 
 func (s *StorageSelect) SelectedBackend() StorageBackend {

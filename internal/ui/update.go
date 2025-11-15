@@ -161,30 +161,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if activeComponent := m.getActiveComponent(); activeComponent != nil {
-			// For terminal state, calculate available space after app UI overhead
+			// For terminal state, we need to calculate the actual content area
+			// since the terminal needs to know the exact dimensions it has to work with
 			if m.state == StateSSHTerminal {
-				// App View overhead:
-				// - Title "SSH-X-Term" with MarginBottom(1): ~2 lines
-				// - Newline after title: 1 line
-				// - Newline before help: 1 line
-				// - Help text "Press 'esc' to disconnect": 1 line
-				// - appStyle Padding(1, 2): 2 lines vertical (top + bottom)
-				// Total: ~7 lines
-				overhead := 7
-				adjustedHeight := msg.Height - overhead
-				if adjustedHeight < 12 { // Minimum viable height
-					adjustedHeight = 12
-				}
-				
-				// Also ensure we have reasonable width
-				adjustedWidth := msg.Width
-				if adjustedWidth < 80 {
-					adjustedWidth = 80
+				// The terminal gets the full content area between header and footer
+				contentHeight := m.height - headerHeight - footerHeight
+				if contentHeight < 12 { // Minimum viable height
+					contentHeight = 12
 				}
 				
 				adjustedMsg := tea.WindowSizeMsg{
-					Width:  adjustedWidth,
-					Height: adjustedHeight,
+					Width:  m.width,
+					Height: contentHeight,
 				}
 				model, cmd := activeComponent.Update(adjustedMsg)
 				return m, m.handleComponentResult(model, cmd)
