@@ -3,7 +3,6 @@ package components
 import (
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -129,46 +128,48 @@ func (t *TerminalComponent) View() string {
 	}
 
 	if t.loading {
-		return fmt.Sprintf("Connecting to %s@%s:%d...", t.connection.Username, t.connection.Host, t.connection.Port)
+		return fmt.Sprintf("\nConnecting to %s@%s:%d...\n", t.connection.Username, t.connection.Host, t.connection.Port)
 	}
 
 	if t.error != nil {
 		return fmt.Sprintf(
-			"Error connecting to %s@%s:%d\n\n%s\n\nPress ESC to return",
+			"\nError connecting to %s@%s:%d\n\n%s\n",
 			t.connection.Username, t.connection.Host, t.connection.Port,
 			terminalErrorStyle.Render(t.error.Error()),
 		)
 	}
 
-	header := terminalHeaderStyle.Width(t.width).Render(fmt.Sprintf(
+	// Build terminal header
+	headerText := fmt.Sprintf(
 		"SSH: %s@%s:%d - %s",
 		t.connection.Username, t.connection.Host, t.connection.Port, t.connection.Name,
-	))
+	)
+	
+	// Include scroll indicator if applicable
+	if t.vterm != nil && t.vterm.IsScrolledBack() {
+		headerText += " [SCROLL]"
+	}
+	
+	header := terminalHeaderStyle.Width(t.width).Render(headerText)
 
-	// Calculate space for terminal content relative to header and footer
-	contentHeight := t.height - 2
+	// Get terminal content
 	content := ""
 	if t.vterm != nil {
 		content = t.vterm.Render()
-	} else {
-		content = strings.Repeat("\n", contentHeight)
 	}
 
-	// Include scroll indicator if applicable
-	var scrollIndicator string
-	if t.vterm != nil && t.vterm.IsScrolledBack() {
-		scrollIndicator = " [SCROLL]"
-	}
-
-	footer := terminalFooterStyle.Width(t.width).Render(t.renderFooter() + scrollIndicator)
+	// Build terminal footer
+	footer := terminalFooterStyle.Width(t.width).Render(t.renderFooter())
 
 	// Combine everything: header, content, footer
-	return strings.Join([]string{header, content, footer}, "\n")
+	return lipgloss.JoinVertical(lipgloss.Left, header, content, footer)
 }
 
 // Utility: Calculate content height
 func (t *TerminalComponent) contentHeight() int {
-	return t.height - 2 // Space for header and footer
+	// Terminal now receives the content area size directly from the main view
+	// We still need to subtract the terminal's own header and footer (2 lines total)
+	return t.height - 2
 }
 
 // Utility: Resize terminal components dynamically

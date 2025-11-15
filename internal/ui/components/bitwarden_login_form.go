@@ -3,6 +3,17 @@ package components
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+var (
+	bwFormStyle = lipgloss.NewStyle().
+			Padding(1, 2)
+
+	bwTitleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("205")).
+			MarginBottom(1)
 )
 
 type BitwardenLoginForm struct {
@@ -73,14 +84,27 @@ func (f *BitwardenLoginForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (f *BitwardenLoginForm) View() string {
 	if f.canceled {
-		return "Login canceled."
+		return bwFormStyle.Render("Login canceled.")
 	}
+	
+	var content string
 	if f.stage == 0 {
-		return "Enter your Bitwarden password:\n" + f.passwordInput.View() + "\n" + f.errorMsg
+		content = bwTitleStyle.Render("Bitwarden Login") + "\n\n"
+		content += "Enter your Bitwarden password:\n" + f.passwordInput.View()
+		if f.errorMsg != "" {
+			content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.errorMsg)
+		}
 	} else if f.stage == 1 {
-		return "Enter 2FA code if required (or leave blank):\n" + f.otpInput.View() + "\n" + f.errorMsg
+		content = bwTitleStyle.Render("Bitwarden Login - 2FA") + "\n\n"
+		content += "Enter 2FA code if required (or leave blank):\n" + f.otpInput.View()
+		if f.errorMsg != "" {
+			content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.errorMsg)
+		}
+	} else {
+		content = "Logging in..."
 	}
-	return "Logging in..."
+	
+	return bwFormStyle.Render(content)
 }
 
 func (f *BitwardenLoginForm) IsSubmitted() bool {
