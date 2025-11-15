@@ -51,17 +51,18 @@ type SSHSessionMsg struct {
 
 // TerminalComponent represents a terminal component for SSH sessions
 type TerminalComponent struct {
-	connection    config.SSHConnection
-	session       *ssh.BubbleTeaSession
-	vterm         *VTerminal
-	status        string
-	error         error
-	loading       bool
-	width         int
-	height        int
-	finished      bool
-	mutex         sync.Mutex
-	sessionClosed bool
+	connection       config.SSHConnection
+	session          *ssh.BubbleTeaSession
+	vterm            *VTerminal
+	status           string
+	error            error
+	loading          bool
+	width            int
+	height           int
+	finished         bool
+	mutex            sync.Mutex
+	sessionClosed    bool
+	sessionStarted   bool // Track if session has been initiated
 }
 
 // NewTerminalComponent creates a new terminal component
@@ -75,7 +76,9 @@ func NewTerminalComponent(conn config.SSHConnection) *TerminalComponent {
 
 // Init initializes the component
 func (t *TerminalComponent) Init() tea.Cmd {
-	return t.startSession(t.connection, t.width, t.height)
+	// Don't start session yet if we don't have dimensions
+	// Wait for WindowSizeMsg to arrive first
+	return nil
 }
 
 // Update handles component updates
@@ -84,6 +87,14 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width
 		t.height = msg.Height
+		
+		// If session not started yet, start it now with proper dimensions
+		if !t.sessionStarted && !t.finished && t.error == nil {
+			t.sessionStarted = true
+			return t, t.startSession(t.connection, t.width, t.height)
+		}
+		
+		// Otherwise just resize
 		t.resizeTerminal()
 		return t, nil
 
