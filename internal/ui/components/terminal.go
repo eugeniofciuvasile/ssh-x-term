@@ -190,7 +190,8 @@ func (t *TerminalComponent) startSession(conn config.SSHConnection, width, heigh
 		if height <= 0 {
 			height = 24
 		}
-		session, err := ssh.NewBubbleTeaSession(conn, width, height-2)
+		// Only subtract 1 for the terminal header (footer is now in main view)
+		session, err := ssh.NewBubbleTeaSession(conn, width, height-1)
 		if err != nil {
 			return SSHSessionMsg{nil, err}
 		}
