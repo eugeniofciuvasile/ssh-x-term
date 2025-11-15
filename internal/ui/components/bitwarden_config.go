@@ -15,6 +15,14 @@ var (
 	bwNoStyle       = lipgloss.NewStyle()
 	bwFocusedButton = bwFocusedStyle.Render("[ Submit ]")
 	bwBlurredButton = fmt.Sprintf("[ %s ]", bwBlurredStyle.Render("Submit"))
+	
+	bwConfigFormStyle = lipgloss.NewStyle().
+				Padding(1, 2)
+
+	bwConfigTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("205")).
+				MarginBottom(1)
 )
 
 type BitwardenConfigForm struct {
@@ -111,7 +119,9 @@ func (f *BitwardenConfigForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (f *BitwardenConfigForm) View() string {
 	var b strings.Builder
-	b.WriteString("Bitwarden Storage Setup\n\n")
+	
+	b.WriteString(bwConfigTitleStyle.Render("Bitwarden Storage Setup"))
+	b.WriteString("\n\n")
 	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Server URL:", f.inputs[0].View()))
 	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Email:", f.inputs[1].View()))
 
@@ -120,15 +130,14 @@ func (f *BitwardenConfigForm) View() string {
 	if f.focusIndex == len(f.inputs) {
 		button = bwFocusedButton
 	}
-	fmt.Fprintf(&b, "\n%s\n\n", button)
+	fmt.Fprintf(&b, "\n%s\n", button)
 
 	// Show error message if any
 	if f.ErrorMsg != "" {
 		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.ErrorMsg))
 	}
 
-	b.WriteString(bwBlurredStyle.Render("\nTab/Shift+Tab/Up/Down to move, Enter to submit, Esc/Ctrl+C to cancel\n"))
-	return b.String()
+	return bwConfigFormStyle.Render(b.String())
 }
 
 func (f *BitwardenConfigForm) IsSubmitted() bool {

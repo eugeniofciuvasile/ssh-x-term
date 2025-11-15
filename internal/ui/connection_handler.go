@@ -56,7 +56,19 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 		m.terminal = components.NewTerminalComponent(*conn)
 		m.state = StateSSHTerminal
 		m.connectionList.Reset()
-		return m.terminal.Init()
+		
+		// Send initial size to terminal component so it can start the SSH session
+		initCmd := m.terminal.Init()
+		contentHeight := m.height - headerHeight - footerHeight
+		if contentHeight < 12 {
+			contentHeight = 12
+		}
+		sizeMsg := tea.WindowSizeMsg{
+			Width:  m.width,
+			Height: contentHeight,
+		}
+		_, sizeCmd := m.terminal.Update(sizeMsg)
+		return tea.Batch(initCmd, sizeCmd)
 	}
 	// Windows
 	if openInNewWindow {
@@ -68,7 +80,19 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 	m.terminal = components.NewTerminalComponent(*conn)
 	m.state = StateSSHTerminal
 	m.connectionList.Reset()
-	return m.terminal.Init()
+	
+	// Send initial size to terminal component so it can start the SSH session
+	initCmd := m.terminal.Init()
+	contentHeight := m.height - headerHeight - footerHeight
+	if contentHeight < 12 {
+		contentHeight = 12
+	}
+	sizeMsg := tea.WindowSizeMsg{
+		Width:  m.width,
+		Height: contentHeight,
+	}
+	_, sizeCmd := m.terminal.Update(sizeMsg)
+	return tea.Batch(initCmd, sizeCmd)
 }
 
 func (m *Model) prepareKeyFileIfNeeded(conn *config.SSHConnection) (string, error) {

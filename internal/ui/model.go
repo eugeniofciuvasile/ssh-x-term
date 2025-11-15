@@ -70,8 +70,9 @@ const (
 	StateOrganizationSelect
 	StateCollectionSelect
 
-	headerLines   = 4
-	footerLines   = 4
+	// Layout constants for full-screen UI
+	headerHeight  = 1 // Header line at top
+	footerHeight  = 1 // Footer line at bottom
 	minListHeight = 5
 	defaultWidth  = 60
 	defaultHeight = 20
@@ -117,7 +118,8 @@ func (m *Model) Init() tea.Cmd {
 }
 
 func (m *Model) listHeight() int {
-	usableHeight := m.height - headerLines - footerLines
+	// Calculate available height for lists (total - header - footer)
+	usableHeight := m.height - headerHeight - footerHeight
 	if usableHeight < minListHeight {
 		return minListHeight
 	}

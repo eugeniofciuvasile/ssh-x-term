@@ -194,5 +194,6 @@ func (cl *ConnectionList) SetSize(width, height int) {
 		height = 20
 	}
 	cl.list.SetWidth(width)
-	cl.list.SetHeight(height - 4)
+	// Use full available height for the list
+	cl.list.SetHeight(height)
 }
