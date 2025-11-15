@@ -21,15 +21,23 @@ Cross-platform features include support for passh (Unix), plink.exe (Windows), a
 
 ## Features
 
-- Manage SSH connections in an interactive Bubble Tea TUI.
+- **Integrated SSH Terminal**: Fully functional terminal emulator within Bubble Tea
+  - VT100/ANSI escape sequence support for proper terminal rendering
+  - Scrollback buffer (10,000 lines) with keyboard and mouse scrolling
+  - Text selection with mouse (click and drag)
+  - Copy to clipboard support (Ctrl+C or automatic on selection)
+  - Full keyboard support (arrow keys, home, end, function keys, etc.)
+  - Window resize handling
+  - Works entirely within the TUI (no external terminal takeover)
+- Manage SSH connections in an interactive Bubble Tea TUI
 - **Dual credential storage modes:**
   - **Local storage** with go-keyring (system keyring integration)
   - **Bitwarden vault** storage via Bitwarden CLI
-- Secure credential storage: passwords never stored in plaintext.
-- Password-based SSH login automation using passh (Unix) or plink.exe (Windows).
-- Key-based SSH authentication.
-- Open connections in new tmux windows or current terminal.
-- Fullscreen and responsive TUI.
+- Secure credential storage: passwords never stored in plaintext
+- Password-based SSH login automation using passh (Unix) or plink.exe (Windows)
+- Key-based SSH authentication
+- Open connections in new tmux windows or integrated terminal
+- Fullscreen and responsive TUI
 
 ## Project Structure
 
@@ -227,8 +235,27 @@ sxt
     - `Tab` to navigate, `Ctrl+p` to toggle auth type, `Enter` to submit, `Esc` to cancel.
 
 5. **SSH Session:**
-    - `Esc` to disconnect.
-    - Passwords are supplied securely via passh or plink.exe (never echoed or stored in plaintext).
+    - Fully integrated terminal within Bubble Tea UI
+    - **Navigation:**
+      - `Esc` to disconnect and return to connection list
+      - `Ctrl+D` to send EOF (End of File) signal
+    - **Scrolling:**
+      - `PgUp` / `PgDn` to scroll up/down by 10 lines
+      - `Shift+Up` / `Shift+Down` for scrolling
+      - `Ctrl+Home` to scroll to top
+      - `Ctrl+End` to scroll to bottom
+      - Mouse wheel for scrolling
+    - **Text Selection & Copy:**
+      - Click and drag with mouse to select text
+      - `Ctrl+C` to copy selected text (or send interrupt if no selection)
+      - `Ctrl+Shift+C` to force copy selection
+      - Selected text is automatically copied to clipboard on mouse release
+    - **Terminal Features:**
+      - VT100/ANSI escape sequence support
+      - 10,000 line scrollback buffer
+      - Window resize support
+      - Full keyboard support (arrow keys, home, end, etc.)
+    - Passwords are supplied securely (never echoed or stored in plaintext).
 
 ## Configuration
 
