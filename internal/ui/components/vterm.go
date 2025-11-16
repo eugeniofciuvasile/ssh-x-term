@@ -873,6 +873,9 @@ func (vt *VTerminal) Render() string {
 	startLine := 0
 	endLine := vt.height
 
+	// Determine if we should show the cursor (only when not scrolled back)
+	showCursor := vt.scrollOffset == 0 && vt.cursorY >= 0 && vt.cursorY < vt.height && vt.cursorX >= 0 && vt.cursorX < vt.width
+
 	// If scrolled back, show scrollback content
 	if vt.scrollOffset > 0 {
 		scrollbackLen := len(vt.scrollback)
@@ -896,9 +899,58 @@ func (vt *VTerminal) Render() string {
 			linesRendered++
 		}
 	} else {
-		// Show current buffer
+		// Show current buffer with cursor
 		for i := startLine; i < endLine && i < len(vt.buffer); i++ {
-			buf.WriteString(string(vt.buffer[i]))
+			line := vt.buffer[i]
+
+			// Render line with visual cursor if this is the cursor line
+			if showCursor && i == vt.cursorY {
+				for j := 0; j < len(line); j++ {
+					if j == vt.cursorX {
+						// Render cursor at this position using inverse video
+						char := line[j]
+						if char == ' ' || char == 0 {
+							char = ' '
+						}
+						// Use ANSI SGR codes for inverse video: ESC[7m for inverse, ESC[27m to turn it off
+						buf.WriteString(fmt.Sprintf("\x1B[7m%c\x1B[27m", char))
+					} else {
+						buf.WriteRune(line[j])
+					}
+				}
+
+				// If cursor is at the end of the line (beyond visible characters)
+				if vt.cursorX >= len(line) && vt.cursorX < vt.width {
+					// Add spaces until cursor position
+					for j := len(line); j < vt.cursorX; j++ {
+						buf.WriteRune(' ')
+					}
+					// Add cursor
+					buf.WriteString("\x1B[7m \x1B[27m")
+					// Add remaining spaces to fill the line
+					for j := vt.cursorX + 1; j < vt.width; j++ {
+						buf.WriteRune(' ')
+					}
+				} else if vt.cursorX >= vt.width {
+					// Cursor is beyond line width, just pad the line
+					for j := len(line); j < vt.width; j++ {
+						buf.WriteRune(' ')
+					}
+				} else {
+					// Pad remaining part of line
+					for j := len(line); j < vt.width; j++ {
+						buf.WriteRune(' ')
+					}
+				}
+			} else {
+				// Regular line without cursor
+				buf.WriteString(string(line))
+				// Pad line to width
+				for j := len(line); j < vt.width; j++ {
+					buf.WriteRune(' ')
+				}
+			}
+
 			buf.WriteRune('\n')
 			linesRendered++
 		}
@@ -911,36 +963,7 @@ func (vt *VTerminal) Render() string {
 		linesRendered++
 	}
 
-	content := buf.String()
-
-	// Add cursor positioning if not scrolled back
-	// Use relative cursor positioning from the end of content
-	if vt.scrollOffset == 0 && vt.cursorY >= 0 && vt.cursorY < vt.height && vt.cursorX >= 0 && vt.cursorX < vt.width {
-		// After rendering, cursor is at the start of the line after the last line
-		// We need to move up to the correct line and then right to the correct column
-
-		// Calculate lines to move up: from (height) to cursorY
-		linesToMoveUp := vt.height - vt.cursorY
-
-		// Move cursor up to the target line
-		if linesToMoveUp > 0 {
-			content += fmt.Sprintf("\x1B[%dA", linesToMoveUp)
-		}
-
-		// Move cursor to the target column (cursor is at column 0 after moving up)
-		// Move right by cursorX columns
-		if vt.cursorX > 0 {
-			content += fmt.Sprintf("\x1B[%dC", vt.cursorX)
-		}
-
-		// Show cursor and make it blink (DECTCEM)
-		content += "\x1B[?25h"
-	} else {
-		// Hide cursor when scrolled back
-		content += "\x1B[?25l"
-	}
-
-	return content
+	return buf.String()
 }
 
 // GetCursorPosition returns the current cursor position
