@@ -41,13 +41,13 @@ func NewBubbleTeaSession(connConfig config.SSHConnection, width, height int) (*B
 		return nil, fmt.Errorf("failed to create SSH session: %w", err)
 	}
 
-	// Set up terminal modes
+	// Set up terminal modes for raw mode (better terminal emulation)
 	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
+		ssh.ECHO:          1, // Echo input characters
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
-		ssh.ICANON:        1,
-		ssh.ISIG:          1,
+		ssh.ICANON:        0, // Disable canonical mode for proper arrow key handling
+		ssh.ISIG:          1, // Enable signal generation (Ctrl+C, etc.)
 	}
 
 	// Request PTY
