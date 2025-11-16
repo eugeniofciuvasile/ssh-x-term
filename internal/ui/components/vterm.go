@@ -33,6 +33,10 @@ type VTerminal struct {
 	// Mouse selection support
 	selectionStart *position
 	selectionEnd   *position
+	// Terminal modes
+	autoWrap      bool // Auto-wrap mode (DECAWM)
+	cursorVisible bool // Cursor visibility
+	pendingWrap   bool // Pending wrap state - cursor is past last column, wrap on next char
 }
 
 type position struct {
@@ -72,6 +76,8 @@ func NewVTerminal(width, height int) *VTerminal {
 			fgColor: -1,
 			bgColor: -1,
 		},
+		autoWrap:      true, // Enable auto-wrap by default
+		cursorVisible: true, // Cursor visible by default
 	}
 	vt.attrs = vt.defaultAttrs
 	vt.initBuffer()
@@ -148,30 +154,37 @@ func (vt *VTerminal) processByte(b byte) {
 			// Do nothing
 		case 0x0D: // Carriage return (CR, CTRL+M, '\r')
 			vt.cursorX = 0
+			vt.pendingWrap = false
 		case 0x0A: // Line feed (LF, CTRL+J, '\n')
 			vt.newLine()
+			vt.pendingWrap = false
 		case 0x08: // Backspace (BS, CTRL+H, '\b')
 			if vt.cursorX > 0 {
 				vt.cursorX--
 			}
+			vt.pendingWrap = false
 		case 0x09: // Tab (HT, CTRL+I, '\t')
 			vt.cursorX = (vt.cursorX + 8) & ^7
 			if vt.cursorX >= vt.width {
 				vt.cursorX = vt.width - 1
 			}
+			vt.pendingWrap = false
 		case 0x07: // Bell (BEL, CTRL+G) - ignore
 			// Do nothing - bell sound not supported in TUI
 		case 0x0C: // Form feed (FF, CTRL+L) - typically used for clear screen
 			// Some programs use FF as clear screen, we'll just move to new line
 			vt.newLine()
+			vt.pendingWrap = false
 		case 0x0B: // Vertical tab (VT) - treat as line feed
 			vt.newLine()
+			vt.pendingWrap = false
 		case 0x0E, 0x0F: // Shift Out/Shift In - character set switching, ignore for now
 			// These are used for alternate character sets, not commonly used in modern terminals
 		case 0x7F: // DEL - delete character (usually same as backspace)
 			if vt.cursorX > 0 {
 				vt.cursorX--
 			}
+			vt.pendingWrap = false
 		}
 		// Ignore other control characters (0x01-0x06, 0x10-0x1A, 0x1C-0x1F) that we don't explicitly handle
 		return
@@ -222,15 +235,33 @@ func (vt *VTerminal) putChar(r rune) {
 	if vt.cursorY >= vt.height {
 		vt.cursorY = vt.height - 1
 	}
-	if vt.cursorX >= vt.width {
+
+	// Handle pending wrap - if we're in pending wrap state, wrap now before writing
+	if vt.pendingWrap && vt.autoWrap {
 		vt.newLine()
 		vt.cursorX = 0
+		vt.pendingWrap = false
 	}
 
+	// Write character at current cursor position
 	if vt.cursorY < len(vt.buffer) && vt.cursorX < len(vt.buffer[vt.cursorY]) {
 		vt.buffer[vt.cursorY][vt.cursorX] = cell{char: r, attrs: vt.attrs}
 	}
+
+	// Move cursor forward
 	vt.cursorX++
+
+	// Handle cursor after write
+	if vt.cursorX >= vt.width {
+		if vt.autoWrap {
+			// Set pending wrap - don't wrap until next character
+			vt.pendingWrap = true
+			vt.cursorX = vt.width - 1 // Visual cursor stays at last column
+		} else {
+			// Without auto-wrap, stay at the last column
+			vt.cursorX = vt.width - 1
+		}
+	}
 }
 
 func (vt *VTerminal) newLine() {
@@ -340,17 +371,21 @@ func (vt *VTerminal) handleEscapeSequence() {
 		if vt.cursorY > 0 {
 			vt.cursorY--
 		}
+		vt.pendingWrap = false
 	case '7': // Save cursor position (DECSC)
 		vt.savedCursorX = vt.cursorX
 		vt.savedCursorY = vt.cursorY
 	case '8': // Restore cursor position (DECRC)
 		vt.cursorX = vt.savedCursorX
 		vt.cursorY = vt.savedCursorY
+		vt.pendingWrap = false
 	case 'D': // Index (move down, scroll if at bottom) - IND
 		vt.newLine()
+		vt.pendingWrap = false
 	case 'E': // Next line (CR + LF) - NEL
 		vt.cursorX = 0
 		vt.newLine()
+		vt.pendingWrap = false
 	case 'H': // Tab set - HTS (ignore for now)
 		// Would set a tab stop at current cursor position
 	case 'c': // Reset (RIS) - full reset
@@ -398,6 +433,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorX >= vt.width {
 			vt.cursorX = vt.width - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on explicit positioning
 
 	case 'A': // Cursor up
 		n := 1
@@ -408,6 +444,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorY < 0 {
 			vt.cursorY = 0
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'B': // Cursor down
 		n := 1
@@ -418,6 +455,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorY >= vt.height {
 			vt.cursorY = vt.height - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'C': // Cursor forward
 		n := 1
@@ -428,6 +466,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorX >= vt.width {
 			vt.cursorX = vt.width - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'D': // Cursor backward
 		n := 1
@@ -438,6 +477,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorX < 0 {
 			vt.cursorX = 0
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'J': // Erase display
 		mode := 0
@@ -490,6 +530,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorY >= vt.height {
 			vt.cursorY = vt.height - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'G', '`': // Horizontal position absolute
 		col := 1
@@ -500,6 +541,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorX >= vt.width {
 			vt.cursorX = vt.width - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 's': // Save cursor position (ANSI.SYS)
 		vt.savedCursorX = vt.cursorX
@@ -508,6 +550,7 @@ func (vt *VTerminal) handleCSI() {
 	case 'u': // Restore cursor position (ANSI.SYS)
 		vt.cursorX = vt.savedCursorX
 		vt.cursorY = vt.savedCursorY
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case '@': // Insert blank characters (ICH)
 		n := 1
@@ -534,14 +577,35 @@ func (vt *VTerminal) handleCSI() {
 	case 'h': // Set mode
 		// Handle various DEC private modes with '?' prefix
 		if params != "" && params[0] == '?' {
-			// Private mode set - just ignore for now
-			// Common ones: ?25 = cursor visible, ?1049 = alternate screen buffer
+			// DEC private modes - remove the '?' and parse
+			modeParams := params[1:]
+			modeArgs := parseCSIParams(modeParams)
+			for _, arg := range modeArgs {
+				switch arg {
+				case 7: // DECAWM - Auto-wrap mode
+					vt.autoWrap = true
+				case 25: // DECTCEM - Cursor visible
+					vt.cursorVisible = true
+					// Other modes like ?1 (application cursor keys), ?1049 (alt screen)
+					// are not fully implemented but won't cause errors
+				}
+			}
 		}
 
 	case 'l': // Reset mode
 		// Handle various DEC private modes with '?' prefix
 		if params != "" && params[0] == '?' {
-			// Private mode reset - just ignore for now
+			// DEC private modes - remove the '?' and parse
+			modeParams := params[1:]
+			modeArgs := parseCSIParams(modeParams)
+			for _, arg := range modeArgs {
+				switch arg {
+				case 7: // DECAWM - Auto-wrap mode
+					vt.autoWrap = false
+				case 25: // DECTCEM - Cursor visible
+					vt.cursorVisible = false
+				}
+			}
 		}
 
 	case 'm': // SGR - Select Graphic Rendition
@@ -886,7 +950,8 @@ func (vt *VTerminal) Render() string {
 		// Show scrollback lines
 		scrollbackStart := scrollbackLen - vt.scrollOffset
 		for i := scrollbackStart; i < scrollbackLen && (i-scrollbackStart) < vt.height; i++ {
-			vt.renderLine(&buf, vt.scrollback[i], false, -1)
+			lineY := i - scrollbackStart
+			vt.renderLine(&buf, vt.scrollback[i], false, -1, lineY)
 			buf.WriteRune('\n')
 			linesRendered++
 		}
@@ -894,7 +959,8 @@ func (vt *VTerminal) Render() string {
 		// Fill remaining lines with buffer if needed
 		remainingLines := vt.height - (scrollbackLen - scrollbackStart)
 		for i := 0; i < remainingLines && i < len(vt.buffer); i++ {
-			vt.renderLine(&buf, vt.buffer[i], false, -1)
+			lineY := (scrollbackLen - scrollbackStart) + i
+			vt.renderLine(&buf, vt.buffer[i], false, -1, lineY)
 			buf.WriteRune('\n')
 			linesRendered++
 		}
@@ -905,9 +971,9 @@ func (vt *VTerminal) Render() string {
 
 			// Render line with visual cursor if this is the cursor line
 			if showCursor && i == vt.cursorY {
-				vt.renderLine(&buf, line, true, vt.cursorX)
+				vt.renderLine(&buf, line, true, vt.cursorX, i)
 			} else {
-				vt.renderLine(&buf, line, false, -1)
+				vt.renderLine(&buf, line, false, -1, i)
 			}
 
 			buf.WriteRune('\n')
@@ -925,11 +991,48 @@ func (vt *VTerminal) Render() string {
 	return buf.String()
 }
 
-// renderLine renders a single line with color attributes
-func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool, cursorX int) {
+// renderLine renders a single line with color attributes and selection highlighting
+func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool, cursorX int, lineY int) {
 	var currentAttrs cellAttrs
 	currentAttrs.fgColor = -1
 	currentAttrs.bgColor = -1
+
+	// Calculate selection range for this line (if any)
+	var hasSelection bool
+	var selStartX, selEndX int
+
+	if vt.selectionStart != nil && vt.selectionEnd != nil {
+		startY, startX := vt.selectionStart.y, vt.selectionStart.x
+		endY, endX := vt.selectionEnd.y, vt.selectionEnd.x
+
+		// Normalize selection (ensure start is before end)
+		if startY > endY || (startY == endY && startX > endX) {
+			startY, endY = endY, startY
+			startX, endX = endX, startX
+		}
+
+		// Check if this line has selection
+		if lineY >= startY && lineY <= endY {
+			hasSelection = true
+			if lineY == startY && lineY == endY {
+				// Single line selection
+				selStartX = startX
+				selEndX = endX
+			} else if lineY == startY {
+				// First line of multi-line selection
+				selStartX = startX
+				selEndX = vt.width - 1
+			} else if lineY == endY {
+				// Last line of multi-line selection
+				selStartX = 0
+				selEndX = endX
+			} else {
+				// Middle line of multi-line selection
+				selStartX = 0
+				selEndX = vt.width - 1
+			}
+		}
+	}
 
 	for j := 0; j < vt.width; j++ {
 		var c cell
@@ -942,9 +1045,17 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 		// Check if this is the cursor position
 		isCursor := showCursor && j == cursorX
 
-		// If cursor position, apply inverse video
+		// Check if this character is selected
+		isSelected := hasSelection && j >= selStartX && j <= selEndX
+
+		// Apply attributes
 		var attrs cellAttrs
 		if isCursor {
+			// Cursor always shows with inverse video
+			attrs = c.attrs
+			attrs.reverse = !attrs.reverse
+		} else if isSelected {
+			// Selected text shows with inverse video
 			attrs = c.attrs
 			attrs.reverse = !attrs.reverse
 		} else {
@@ -1066,6 +1177,13 @@ func (vt *VTerminal) ScrollToBottom() {
 	vt.mutex.Lock()
 	defer vt.mutex.Unlock()
 	vt.scrollOffset = 0
+}
+
+// ScrollToTop scrolls to the top of the scrollback buffer
+func (vt *VTerminal) ScrollToTop() {
+	vt.mutex.Lock()
+	defer vt.mutex.Unlock()
+	vt.scrollOffset = len(vt.scrollback)
 }
 
 // Clear clears the terminal buffer
