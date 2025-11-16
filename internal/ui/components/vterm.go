@@ -36,6 +36,7 @@ type VTerminal struct {
 	// Terminal modes
 	autoWrap      bool // Auto-wrap mode (DECAWM)
 	cursorVisible bool // Cursor visibility
+	pendingWrap   bool // Pending wrap state - cursor is past last column, wrap on next char
 }
 
 type position struct {
@@ -153,30 +154,37 @@ func (vt *VTerminal) processByte(b byte) {
 			// Do nothing
 		case 0x0D: // Carriage return (CR, CTRL+M, '\r')
 			vt.cursorX = 0
+			vt.pendingWrap = false
 		case 0x0A: // Line feed (LF, CTRL+J, '\n')
 			vt.newLine()
+			vt.pendingWrap = false
 		case 0x08: // Backspace (BS, CTRL+H, '\b')
 			if vt.cursorX > 0 {
 				vt.cursorX--
 			}
+			vt.pendingWrap = false
 		case 0x09: // Tab (HT, CTRL+I, '\t')
 			vt.cursorX = (vt.cursorX + 8) & ^7
 			if vt.cursorX >= vt.width {
 				vt.cursorX = vt.width - 1
 			}
+			vt.pendingWrap = false
 		case 0x07: // Bell (BEL, CTRL+G) - ignore
 			// Do nothing - bell sound not supported in TUI
 		case 0x0C: // Form feed (FF, CTRL+L) - typically used for clear screen
 			// Some programs use FF as clear screen, we'll just move to new line
 			vt.newLine()
+			vt.pendingWrap = false
 		case 0x0B: // Vertical tab (VT) - treat as line feed
 			vt.newLine()
+			vt.pendingWrap = false
 		case 0x0E, 0x0F: // Shift Out/Shift In - character set switching, ignore for now
 			// These are used for alternate character sets, not commonly used in modern terminals
 		case 0x7F: // DEL - delete character (usually same as backspace)
 			if vt.cursorX > 0 {
 				vt.cursorX--
 			}
+			vt.pendingWrap = false
 		}
 		// Ignore other control characters (0x01-0x06, 0x10-0x1A, 0x1C-0x1F) that we don't explicitly handle
 		return
@@ -227,10 +235,20 @@ func (vt *VTerminal) putChar(r rune) {
 	if vt.cursorY >= vt.height {
 		vt.cursorY = vt.height - 1
 	}
+
+	// Handle pending wrap - if we're in pending wrap state, wrap now before writing
+	if vt.pendingWrap && vt.autoWrap {
+		vt.newLine()
+		vt.cursorX = 0
+		vt.pendingWrap = false
+	}
+
+	// Check if we're at the last column after writing
 	if vt.cursorX >= vt.width {
 		if vt.autoWrap {
-			vt.newLine()
-			vt.cursorX = 0
+			// Don't wrap yet, set pending wrap state
+			vt.pendingWrap = true
+			vt.cursorX = vt.width - 1 // Keep cursor at last column
 		} else {
 			// Without auto-wrap, stay at the last column
 			vt.cursorX = vt.width - 1
@@ -240,7 +258,15 @@ func (vt *VTerminal) putChar(r rune) {
 	if vt.cursorY < len(vt.buffer) && vt.cursorX < len(vt.buffer[vt.cursorY]) {
 		vt.buffer[vt.cursorY][vt.cursorX] = cell{char: r, attrs: vt.attrs}
 	}
+
+	// Move cursor forward
 	vt.cursorX++
+
+	// If we just moved to position 'width', set pending wrap
+	if vt.cursorX >= vt.width && vt.autoWrap {
+		vt.pendingWrap = true
+		vt.cursorX = vt.width - 1 // Visual cursor stays at last column
+	}
 }
 
 func (vt *VTerminal) newLine() {
@@ -350,17 +376,21 @@ func (vt *VTerminal) handleEscapeSequence() {
 		if vt.cursorY > 0 {
 			vt.cursorY--
 		}
+		vt.pendingWrap = false
 	case '7': // Save cursor position (DECSC)
 		vt.savedCursorX = vt.cursorX
 		vt.savedCursorY = vt.cursorY
 	case '8': // Restore cursor position (DECRC)
 		vt.cursorX = vt.savedCursorX
 		vt.cursorY = vt.savedCursorY
+		vt.pendingWrap = false
 	case 'D': // Index (move down, scroll if at bottom) - IND
 		vt.newLine()
+		vt.pendingWrap = false
 	case 'E': // Next line (CR + LF) - NEL
 		vt.cursorX = 0
 		vt.newLine()
+		vt.pendingWrap = false
 	case 'H': // Tab set - HTS (ignore for now)
 		// Would set a tab stop at current cursor position
 	case 'c': // Reset (RIS) - full reset
@@ -408,6 +438,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorX >= vt.width {
 			vt.cursorX = vt.width - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on explicit positioning
 
 	case 'A': // Cursor up
 		n := 1
@@ -418,6 +449,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorY < 0 {
 			vt.cursorY = 0
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'B': // Cursor down
 		n := 1
@@ -428,6 +460,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorY >= vt.height {
 			vt.cursorY = vt.height - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'C': // Cursor forward
 		n := 1
@@ -438,6 +471,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorX >= vt.width {
 			vt.cursorX = vt.width - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'D': // Cursor backward
 		n := 1
@@ -448,6 +482,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorX < 0 {
 			vt.cursorX = 0
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'J': // Erase display
 		mode := 0
@@ -500,6 +535,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorY >= vt.height {
 			vt.cursorY = vt.height - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 'G', '`': // Horizontal position absolute
 		col := 1
@@ -510,6 +546,7 @@ func (vt *VTerminal) handleCSI() {
 		if vt.cursorX >= vt.width {
 			vt.cursorX = vt.width - 1
 		}
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case 's': // Save cursor position (ANSI.SYS)
 		vt.savedCursorX = vt.cursorX
@@ -518,6 +555,7 @@ func (vt *VTerminal) handleCSI() {
 	case 'u': // Restore cursor position (ANSI.SYS)
 		vt.cursorX = vt.savedCursorX
 		vt.cursorY = vt.savedCursorY
+		vt.pendingWrap = false // Clear pending wrap on cursor movement
 
 	case '@': // Insert blank characters (ICH)
 		n := 1
