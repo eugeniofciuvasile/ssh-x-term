@@ -655,4 +655,27 @@ func TestVTerminalCursorPositioning(t *testing.T) {
 			t.Errorf("Expected cursor at position (21A, 6C), got output: %q", output)
 		}
 	})
+
+	t.Run("Cursor visibility control", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		vt.Write([]byte("Test"))
+		output := vt.Render()
+
+		// Should contain show cursor sequence when not scrolled
+		if !strings.Contains(output, "\x1B[?25h") {
+			t.Errorf("Expected show cursor sequence ESC[?25h in output, got: %q", output)
+		}
+
+		// Scroll back and check cursor is hidden
+		for i := 0; i < 30; i++ {
+			vt.Write([]byte(fmt.Sprintf("Line %d\n", i)))
+		}
+		vt.ScrollUp(5)
+		outputScrolled := vt.Render()
+
+		// Should contain hide cursor sequence when scrolled back
+		if !strings.Contains(outputScrolled, "\x1B[?25l") {
+			t.Errorf("Expected hide cursor sequence ESC[?25l when scrolled back, got: %q", outputScrolled)
+		}
+	})
 }
