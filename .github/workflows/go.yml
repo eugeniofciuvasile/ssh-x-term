@@ -14,103 +14,110 @@ jobs:
     outputs:
       new_tag: ${{ steps.tag_step.outputs.new_tag }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.25'
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.25'
 
-    - name: Determine version tag
-      id: get_tag
-      run: |
-        # If manual_version is set and valid, use it
-        if [[ -n "${{ github.event.inputs.manual_version }}" ]] && [[ "${{ github.event.inputs.manual_version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          new_tag="${{ github.event.inputs.manual_version }}"
-          echo "Manual version input detected: $new_tag"
-        else
-          # Check if any tags exist
-          if git tag | grep -q "^v[0-9]"; then
-            latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
-            echo "Found latest tag: $latest_tag"
-            major=$(echo $latest_tag | cut -d. -f1 | sed 's/v//')
-            minor=$(echo $latest_tag | cut -d. -f2)
-            patch=$(echo $latest_tag | cut -d. -f3)
-            new_patch=$((patch + 1))
-            new_tag="v$major.$minor.$new_patch"
+      - name: Determine version tag
+        id: get_tag
+        run: |
+          # If manual_version is set and valid, use it
+          if [[ -n "${{ github.event.inputs.manual_version }}" ]] && [[ "${{ github.event.inputs.manual_version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            new_tag="${{ github.event.inputs.manual_version }}"
+            echo "Manual version input detected: $new_tag"
           else
-            echo "No existing version tags found, starting with v0.0.1"
-            new_tag="v0.0.1"
+            # Check if any tags exist
+            if git tag | grep -q "^v[0-9]"; then
+              latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+              echo "Found latest tag: $latest_tag"
+              major=$(echo $latest_tag | cut -d. -f1 | sed 's/v//')
+              minor=$(echo $latest_tag | cut -d. -f2)
+              patch=$(echo $latest_tag | cut -d. -f3)
+              new_patch=$((patch + 1))
+              new_tag="v$major.$minor.$new_patch"
+            else
+              echo "No existing version tags found, starting with v0.0.1"
+              new_tag="v0.0.1"
+            fi
           fi
-        fi
-        echo "Version tag will be: $new_tag"
-        echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+          echo "Version tag will be: $new_tag"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
-    - name: Set git user
-      run: |
-        git config user.name github-actions
-        git config user.email github-actions@github.com
+      - name: Set git user
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
 
-    - name: Bump npm version in package.json and commit
-      run: |
-        VERSION="${{ steps.get_tag.outputs.new_tag }}"
-        VERSION=${VERSION#v}
-        npm version $VERSION --no-git-tag-version
-        git add package.json
-        git commit -m "chore: bump npm package version to $VERSION [skip ci]" || echo "No changes to commit"
-        git push origin main
+      - name: Bump npm version in package.json and commit
+        run: |
+          VERSION="${{ steps.get_tag.outputs.new_tag }}"
+          VERSION=${VERSION#v}
+          npm version $VERSION --no-git-tag-version
+          git add package.json
+          git commit -m "chore: bump npm package version to $VERSION [skip ci]" || echo "No changes to commit"
+          git push origin main
 
-    - name: Create and push new tag
-      id: tag_step
-      run: |
-        echo "Creating and pushing tag: ${{ steps.get_tag.outputs.new_tag }}"
-        git tag ${{ steps.get_tag.outputs.new_tag }}
-        git push origin ${{ steps.get_tag.outputs.new_tag }}
-        echo "new_tag=${{ steps.get_tag.outputs.new_tag }}" >> $GITHUB_OUTPUT
+      - name: Create and push new tag
+        id: tag_step
+        run: |
+          echo "Creating and pushing tag: ${{ steps.get_tag.outputs.new_tag }}"
+          git tag ${{ steps.get_tag.outputs.new_tag }}
+          git push origin ${{ steps.get_tag.outputs.new_tag }}
+          echo "new_tag=${{ steps.get_tag.outputs.new_tag }}" >> $GITHUB_OUTPUT
 
-    - name: Build Go binaries for multiple platforms
-      run: |
-        mkdir -p dist
-        GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/sxt
-        GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/sxt
-        GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/sxt
-        GOOS=linux GOARCH=arm64 go build -o dist/ssh-x-term-linux-arm64 ./cmd/sxt
-        GOOS=darwin GOARCH=arm64 go build -o dist/ssh-x-term-darwin-arm64 ./cmd/sxt
+      - name: Build Go binaries for multiple platforms
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/sxt
+          GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/sxt
+          GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/sxt
+          GOOS=linux GOARCH=arm64 go build -o dist/ssh-x-term-linux-arm64 ./cmd/sxt
+          GOOS=darwin GOARCH=arm64 go build -o dist/ssh-x-term-darwin-arm64 ./cmd/sxt
 
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ steps.get_tag.outputs.new_tag }}
-        name: Release ${{ steps.get_tag.outputs.new_tag }}
-        files: |
-          dist/ssh-x-term-linux-amd64
-          dist/ssh-x-term-windows-amd64.exe
-          dist/ssh-x-term-darwin-amd64
-          dist/ssh-x-term-linux-arm64
-          dist/ssh-x-term-darwin-arm64
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.new_tag }}
+          name: Release ${{ steps.get_tag.outputs.new_tag }}
+          files: |
+            dist/ssh-x-term-linux-amd64
+            dist/ssh-x-term-windows-amd64.exe
+            dist/ssh-x-term-darwin-amd64
+            dist/ssh-x-term-linux-arm64
+            dist/ssh-x-term-darwin-arm64
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-npm:
     needs: release
     runs-on: ubuntu-latest
+    # Required for npm Trusted Publishing via OIDC
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          # use the tag produced by the release job
           ref: ${{ needs.release.outputs.new_tag }}
+
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: '20'
           registry-url: 'https://registry.npmjs.org/'
+
+      # No manual token; npm will use OIDC trusted publisher
       - name: Install dependencies
         run: npm ci || npm install
-      - name: Publish to npm
+
+      - name: Publish to npm via Trusted Publishing
         run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
