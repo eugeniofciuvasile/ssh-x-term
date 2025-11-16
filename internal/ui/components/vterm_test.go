@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -97,7 +98,20 @@ func TestVTerminalClearScreen(t *testing.T) {
 
 	output := vt.Render()
 	// After clearing, the output should be mostly empty (just whitespace and newlines)
-	nonWhitespace := strings.TrimSpace(output)
+	// but may include cursor positioning sequence
+	// Remove ANSI escape sequences before checking
+	cleanOutput := ""
+	inEscape := false
+	for i := 0; i < len(output); i++ {
+		if output[i] == '\x1B' {
+			inEscape = true
+		} else if inEscape && (output[i] >= 'A' && output[i] <= 'Z' || output[i] >= 'a' && output[i] <= 'z') {
+			inEscape = false
+		} else if !inEscape {
+			cleanOutput += string(output[i])
+		}
+	}
+	nonWhitespace := strings.TrimSpace(cleanOutput)
 	if len(nonWhitespace) > 0 {
 		t.Errorf("Expected empty output after clear, got: %q", nonWhitespace)
 	}
@@ -457,7 +471,20 @@ func TestVTerminalAdditionalEscapeSequences(t *testing.T) {
 		vt.Write([]byte("\x1Bc"))
 		output := vt.Render()
 		// After reset, output should be mostly empty
-		nonWhitespace := strings.TrimSpace(output)
+		// but may include cursor positioning sequence
+		// Remove ANSI escape sequences before checking
+		cleanOutput := ""
+		inEscape := false
+		for i := 0; i < len(output); i++ {
+			if output[i] == '\x1B' {
+				inEscape = true
+			} else if inEscape && (output[i] >= 'A' && output[i] <= 'Z' || output[i] >= 'a' && output[i] <= 'z') {
+				inEscape = false
+			} else if !inEscape {
+				cleanOutput += string(output[i])
+			}
+		}
+		nonWhitespace := strings.TrimSpace(cleanOutput)
 		if len(nonWhitespace) > 0 {
 			t.Errorf("Expected empty output after reset, got: %q", nonWhitespace)
 		}
@@ -547,6 +574,83 @@ func TestVTerminalIncompleteUTF8(t *testing.T) {
 		output := vt.Render()
 		if !strings.Contains(output, "Test") {
 			t.Error("Expected 'Test' to be rendered after control character reset UTF-8 buffer")
+		}
+	})
+}
+
+// Test cursor positioning in rendered output
+func TestVTerminalCursorPositioning(t *testing.T) {
+	t.Run("Cursor position included in render when not scrolled", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		vt.Write([]byte("Hello"))
+		output := vt.Render()
+
+		// Should contain cursor positioning sequence ESC[1;6H (row 1, col 6, 1-indexed)
+		// Cursor should be at position (5, 0) in 0-indexed, which is (1, 6) in 1-indexed ANSI
+		if !strings.Contains(output, "\x1B[1;6H") {
+			t.Errorf("Expected cursor positioning sequence ESC[1;6H in output, got: %q", output)
+		}
+	})
+
+	t.Run("Cursor position not included when scrolled back", func(t *testing.T) {
+		vt := NewVTerminal(80, 10)
+		// Write enough lines to create scrollback
+		for i := 0; i < 15; i++ {
+			vt.Write([]byte(fmt.Sprintf("Line %d\n", i)))
+		}
+
+		// Scroll back
+		vt.ScrollUp(5)
+		output := vt.Render()
+
+		// Should NOT contain cursor positioning when scrolled back
+		if strings.Contains(output, "\x1B[") && strings.Contains(output, "H") {
+			// Check if it's actually a cursor positioning sequence
+			for i := 0; i < len(output)-4; i++ {
+				if output[i] == '\x1B' && output[i+1] == '[' {
+					// Look for H after some digits
+					for j := i + 2; j < len(output) && j < i+10; j++ {
+						if output[j] == 'H' {
+							t.Errorf("Should not contain cursor positioning when scrolled back")
+							break
+						}
+						if output[j] < '0' || (output[j] > '9' && output[j] != ';') {
+							break
+						}
+					}
+				}
+			}
+		}
+	})
+
+	t.Run("Cursor position updates as text is written", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		vt.Write([]byte("Test"))
+		output1 := vt.Render()
+
+		// Cursor should be at (4, 0) -> (1, 5) in ANSI
+		if !strings.Contains(output1, "\x1B[1;5H") {
+			t.Errorf("Expected cursor at position (1,5), got output: %q", output1)
+		}
+
+		vt.Write([]byte("\nNext"))
+		output2 := vt.Render()
+
+		// Cursor should now be at (8, 1) -> (2, 9) in ANSI (4 spaces + "Next" = 8)
+		if !strings.Contains(output2, "\x1B[2;9H") {
+			t.Errorf("Expected cursor at position (2,9), got output: %q", output2)
+		}
+	})
+
+	t.Run("Cursor position after escape sequence", func(t *testing.T) {
+		vt := NewVTerminal(80, 24)
+		// Move cursor to position (5, 3) using ESC[4;6H (1-indexed)
+		vt.Write([]byte("\x1B[4;6HX"))
+		output := vt.Render()
+
+		// Cursor should be at (6, 3) after writing X -> (4, 7) in ANSI
+		if !strings.Contains(output, "\x1B[4;7H") {
+			t.Errorf("Expected cursor at position (4,7), got output: %q", output)
 		}
 	})
 }

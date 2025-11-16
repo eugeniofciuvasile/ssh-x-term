@@ -911,7 +911,18 @@ func (vt *VTerminal) Render() string {
 		linesRendered++
 	}
 
-	return buf.String()
+	content := buf.String()
+
+	// Add cursor positioning if not scrolled back
+	// Use ANSI escape sequence to position cursor: ESC[row;colH
+	if vt.scrollOffset == 0 && vt.cursorY >= 0 && vt.cursorY < vt.height && vt.cursorX >= 0 && vt.cursorX < vt.width {
+		// Position is 1-indexed in ANSI sequences, 0-indexed in our buffer
+		// Add 1 to both coordinates
+		cursorSeq := fmt.Sprintf("\x1B[%d;%dH", vt.cursorY+1, vt.cursorX+1)
+		content += cursorSeq
+	}
+
+	return content
 }
 
 // GetCursorPosition returns the current cursor position

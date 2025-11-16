@@ -70,10 +70,10 @@ func (s *StorageSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (s *StorageSelect) View() string {
 	var content string
-	
+
 	// Title
 	content += storageSelectTitleStyle.Render("Choose storage backend:") + "\n\n"
-	
+
 	// Options
 	for i, opt := range s.options {
 		style := lipgloss.NewStyle()
@@ -84,9 +84,9 @@ func (s *StorageSelect) View() string {
 		}
 		content += style.Render(prefix+opt) + "\n"
 	}
-	
+
 	content += "\n"
-	
+
 	return storageSelectStyle.Render(content)
 }
 
