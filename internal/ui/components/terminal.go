@@ -294,6 +294,23 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Don't close the session yet, wait for second ESC
 		return t, nil
 
+	case "ctrl+shift+c":
+		// Force copy selection to clipboard
+		if t.vterm != nil && t.vterm.HasSelection() {
+			t.vterm.CopySelection()
+		}
+		return t, nil
+
+	case "ctrl+c":
+		// Copy selected text if there is a selection, otherwise send SIGINT
+		if t.vterm != nil && t.vterm.HasSelection() {
+			t.vterm.CopySelection()
+			return t, nil
+		}
+		// No selection, send interrupt signal to terminal
+		t.forwardKeyToSession("ctrl+c")
+		return t, nil
+
 	case "pgup", "shift+up":
 		t.vterm.ScrollUp(10) // Handle scrolling up
 		return t, nil
@@ -302,7 +319,26 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		t.vterm.ScrollDown(10) // Handle scrolling down
 		return t, nil
 
+	case "ctrl+home":
+		// Scroll to top
+		if t.vterm != nil {
+			t.vterm.ScrollToTop()
+		}
+		return t, nil
+
+	case "ctrl+end":
+		// Scroll to bottom
+		if t.vterm != nil {
+			t.vterm.ScrollToBottom()
+		}
+		return t, nil
+
 	default:
+		// Clear selection when user starts typing
+		if t.vterm != nil && t.vterm.HasSelection() {
+			t.vterm.ClearSelection()
+		}
+
 		// Reset ESC tracking on any other key press
 		if t.escPressCount > 0 {
 			t.escPressCount = 0

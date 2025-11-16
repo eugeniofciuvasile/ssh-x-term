@@ -1115,6 +1115,13 @@ func (vt *VTerminal) ScrollToBottom() {
 	vt.scrollOffset = 0
 }
 
+// ScrollToTop scrolls to the top of the scrollback buffer
+func (vt *VTerminal) ScrollToTop() {
+	vt.mutex.Lock()
+	defer vt.mutex.Unlock()
+	vt.scrollOffset = len(vt.scrollback)
+}
+
 // Clear clears the terminal buffer
 func (vt *VTerminal) Clear() {
 	vt.mutex.Lock()
