@@ -585,10 +585,11 @@ func TestVTerminalCursorPositioning(t *testing.T) {
 		vt.Write([]byte("Hello"))
 		output := vt.Render()
 
-		// Should contain cursor positioning sequence ESC[1;6H (row 1, col 6, 1-indexed)
-		// Cursor should be at position (5, 0) in 0-indexed, which is (1, 6) in 1-indexed ANSI
-		if !strings.Contains(output, "\x1B[1;6H") {
-			t.Errorf("Expected cursor positioning sequence ESC[1;6H in output, got: %q", output)
+		// Cursor should be at position (5, 0)
+		// After rendering all 24 lines, cursor is after the last newline
+		// Move up 24 lines (to line 0), then right 5 columns
+		if !strings.Contains(output, "\x1B[24A") || !strings.Contains(output, "\x1B[5C") {
+			t.Errorf("Expected cursor positioning sequence ESC[24A and ESC[5C in output, got: %q", output)
 		}
 	})
 
@@ -604,17 +605,18 @@ func TestVTerminalCursorPositioning(t *testing.T) {
 		output := vt.Render()
 
 		// Should NOT contain cursor positioning when scrolled back
-		if strings.Contains(output, "\x1B[") && strings.Contains(output, "H") {
-			// Check if it's actually a cursor positioning sequence
-			for i := 0; i < len(output)-4; i++ {
+		// Check for the pattern ESC[<number>A (cursor up)
+		if strings.Contains(output, "\x1B[") && strings.Contains(output, "A") {
+			// More specific check for cursor up sequence
+			for i := 0; i < len(output)-3; i++ {
 				if output[i] == '\x1B' && output[i+1] == '[' {
-					// Look for H after some digits
+					// Look for 'A' after some digits
 					for j := i + 2; j < len(output) && j < i+10; j++ {
-						if output[j] == 'H' {
+						if output[j] == 'A' {
 							t.Errorf("Should not contain cursor positioning when scrolled back")
 							break
 						}
-						if output[j] < '0' || (output[j] > '9' && output[j] != ';') {
+						if output[j] < '0' || output[j] > '9' {
 							break
 						}
 					}
@@ -628,17 +630,17 @@ func TestVTerminalCursorPositioning(t *testing.T) {
 		vt.Write([]byte("Test"))
 		output1 := vt.Render()
 
-		// Cursor should be at (4, 0) -> (1, 5) in ANSI
-		if !strings.Contains(output1, "\x1B[1;5H") {
-			t.Errorf("Expected cursor at position (1,5), got output: %q", output1)
+		// Cursor should be at (4, 0) -> Move up 24, right 4
+		if !strings.Contains(output1, "\x1B[24A") || !strings.Contains(output1, "\x1B[4C") {
+			t.Errorf("Expected cursor at position (24A, 4C), got output: %q", output1)
 		}
 
 		vt.Write([]byte("\nNext"))
 		output2 := vt.Render()
 
-		// Cursor should now be at (8, 1) -> (2, 9) in ANSI (4 spaces + "Next" = 8)
-		if !strings.Contains(output2, "\x1B[2;9H") {
-			t.Errorf("Expected cursor at position (2,9), got output: %q", output2)
+		// Cursor should now be at (8, 1) -> Move up 23, right 8
+		if !strings.Contains(output2, "\x1B[23A") || !strings.Contains(output2, "\x1B[8C") {
+			t.Errorf("Expected cursor at position (23A, 8C), got output: %q", output2)
 		}
 	})
 
@@ -648,9 +650,9 @@ func TestVTerminalCursorPositioning(t *testing.T) {
 		vt.Write([]byte("\x1B[4;6HX"))
 		output := vt.Render()
 
-		// Cursor should be at (6, 3) after writing X -> (4, 7) in ANSI
-		if !strings.Contains(output, "\x1B[4;7H") {
-			t.Errorf("Expected cursor at position (4,7), got output: %q", output)
+		// Cursor should be at (6, 3) after writing X -> Move up 21 (24-3), right 6
+		if !strings.Contains(output, "\x1B[21A") || !strings.Contains(output, "\x1B[6C") {
+			t.Errorf("Expected cursor at position (21A, 6C), got output: %q", output)
 		}
 	})
 }
