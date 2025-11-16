@@ -461,11 +461,46 @@ func (t *TerminalComponent) forwardKeyToSession(key string) {
 
 // Utility: Handle mouse events
 func (t *TerminalComponent) handleMouse(msg tea.MouseMsg) {
+	// Handle mouse wheel scrolling
 	if msg.Button == tea.MouseButtonWheelUp {
 		t.vterm.ScrollUp(3)
+		return
 	}
 	if msg.Button == tea.MouseButtonWheelDown {
 		t.vterm.ScrollDown(3)
+		return
+	}
+
+	// Handle text selection with mouse
+	// Adjust mouse position to account for terminal header (1 line)
+	adjustedY := msg.Y - 1
+
+	// Only handle selection within the terminal content area
+	if adjustedY < 0 || adjustedY >= t.contentHeight() {
+		return
+	}
+
+	switch msg.Action {
+	case tea.MouseActionPress:
+		if msg.Button == tea.MouseButtonLeft {
+			// Start selection
+			t.vterm.StartSelection(msg.X, adjustedY)
+		}
+	case tea.MouseActionMotion:
+		if msg.Button == tea.MouseButtonLeft {
+			// Update selection while dragging
+			t.vterm.UpdateSelection(msg.X, adjustedY)
+		}
+	case tea.MouseActionRelease:
+		if msg.Button == tea.MouseButtonLeft {
+			// Finalize selection and copy to clipboard
+			t.vterm.UpdateSelection(msg.X, adjustedY)
+			if t.vterm.HasSelection() {
+				if err := t.vterm.CopySelection(); err == nil {
+					// Successfully copied to clipboard
+				}
+			}
+		}
 	}
 }
 

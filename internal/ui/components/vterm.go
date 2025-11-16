@@ -886,7 +886,8 @@ func (vt *VTerminal) Render() string {
 		// Show scrollback lines
 		scrollbackStart := scrollbackLen - vt.scrollOffset
 		for i := scrollbackStart; i < scrollbackLen && (i-scrollbackStart) < vt.height; i++ {
-			vt.renderLine(&buf, vt.scrollback[i], false, -1)
+			lineY := i - scrollbackStart
+			vt.renderLine(&buf, vt.scrollback[i], false, -1, lineY)
 			buf.WriteRune('\n')
 			linesRendered++
 		}
@@ -894,7 +895,8 @@ func (vt *VTerminal) Render() string {
 		// Fill remaining lines with buffer if needed
 		remainingLines := vt.height - (scrollbackLen - scrollbackStart)
 		for i := 0; i < remainingLines && i < len(vt.buffer); i++ {
-			vt.renderLine(&buf, vt.buffer[i], false, -1)
+			lineY := (scrollbackLen - scrollbackStart) + i
+			vt.renderLine(&buf, vt.buffer[i], false, -1, lineY)
 			buf.WriteRune('\n')
 			linesRendered++
 		}
@@ -905,9 +907,9 @@ func (vt *VTerminal) Render() string {
 
 			// Render line with visual cursor if this is the cursor line
 			if showCursor && i == vt.cursorY {
-				vt.renderLine(&buf, line, true, vt.cursorX)
+				vt.renderLine(&buf, line, true, vt.cursorX, i)
 			} else {
-				vt.renderLine(&buf, line, false, -1)
+				vt.renderLine(&buf, line, false, -1, i)
 			}
 
 			buf.WriteRune('\n')
@@ -925,12 +927,49 @@ func (vt *VTerminal) Render() string {
 	return buf.String()
 }
 
-// renderLine renders a single line with color attributes
-func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool, cursorX int) {
+// renderLine renders a single line with color attributes and selection highlighting
+func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool, cursorX int, lineY int) {
 	var currentAttrs cellAttrs
 	currentAttrs.fgColor = -1
 	currentAttrs.bgColor = -1
 
+	// Calculate selection range for this line (if any)
+	var hasSelection bool
+	var selStartX, selEndX int
+	
+	if vt.selectionStart != nil && vt.selectionEnd != nil {
+		startY, startX := vt.selectionStart.y, vt.selectionStart.x
+		endY, endX := vt.selectionEnd.y, vt.selectionEnd.x
+
+		// Normalize selection (ensure start is before end)
+		if startY > endY || (startY == endY && startX > endX) {
+			startY, endY = endY, startY
+			startX, endX = endX, startX
+		}
+
+		// Check if this line has selection
+		if lineY >= startY && lineY <= endY {
+			hasSelection = true
+			if lineY == startY && lineY == endY {
+				// Single line selection
+				selStartX = startX
+				selEndX = endX
+			} else if lineY == startY {
+				// First line of multi-line selection
+				selStartX = startX
+				selEndX = vt.width - 1
+			} else if lineY == endY {
+				// Last line of multi-line selection
+				selStartX = 0
+				selEndX = endX
+			} else {
+				// Middle line of multi-line selection
+				selStartX = 0
+				selEndX = vt.width - 1
+			}
+		}
+	}
+	
 	for j := 0; j < vt.width; j++ {
 		var c cell
 		if j < len(line) {
@@ -941,10 +980,18 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 
 		// Check if this is the cursor position
 		isCursor := showCursor && j == cursorX
+		
+		// Check if this character is selected
+		isSelected := hasSelection && j >= selStartX && j <= selEndX
 
-		// If cursor position, apply inverse video
+		// Apply attributes
 		var attrs cellAttrs
 		if isCursor {
+			// Cursor always shows with inverse video
+			attrs = c.attrs
+			attrs.reverse = !attrs.reverse
+		} else if isSelected {
+			// Selected text shows with inverse video
 			attrs = c.attrs
 			attrs.reverse = !attrs.reverse
 		} else {
