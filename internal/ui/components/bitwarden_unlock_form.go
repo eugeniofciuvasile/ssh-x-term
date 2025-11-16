@@ -66,13 +66,13 @@ func (f *BitwardenUnlockForm) View() string {
 	if f.canceled {
 		return bwUnlockFormStyle.Render("Unlock canceled.")
 	}
-	
+
 	content := bwUnlockTitleStyle.Render("Unlock Bitwarden Vault") + "\n\n"
 	content += "Enter your Bitwarden vault password:\n" + f.passwordInput.View()
 	if f.errorMsg != "" {
 		content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.errorMsg)
 	}
-	
+
 	return bwUnlockFormStyle.Render(content)
 }
 

@@ -867,6 +867,9 @@ func (vt *VTerminal) Render() string {
 	startLine := 0
 	endLine := vt.height
 
+	// Determine if we should show the cursor (only when not scrolled back)
+	showCursor := vt.scrollOffset == 0 && vt.cursorY >= 0 && vt.cursorY < vt.height && vt.cursorX >= 0 && vt.cursorX < vt.width
+
 	// If scrolled back, show scrollback content
 	if vt.scrollOffset > 0 {
 		scrollbackLen := len(vt.scrollback)
@@ -890,9 +893,58 @@ func (vt *VTerminal) Render() string {
 			linesRendered++
 		}
 	} else {
-		// Show current buffer
+		// Show current buffer with cursor
 		for i := startLine; i < endLine && i < len(vt.buffer); i++ {
-			buf.WriteString(string(vt.buffer[i]))
+			line := vt.buffer[i]
+
+			// Render line with visual cursor if this is the cursor line
+			if showCursor && i == vt.cursorY {
+				for j := range line {
+					if j == vt.cursorX {
+						// Render cursor at this position using inverse video
+						char := line[j]
+						if char == ' ' || char == 0 {
+							char = ' '
+						}
+						// Use ANSI SGR codes for inverse video: ESC[7m for inverse, ESC[27m to turn it off
+						buf.WriteString(fmt.Sprintf("\x1B[7m%c\x1B[27m", char))
+					} else {
+						buf.WriteRune(line[j])
+					}
+				}
+
+				// If cursor is at the end of the line (beyond visible characters)
+				if vt.cursorX >= len(line) && vt.cursorX < vt.width {
+					// Add spaces until cursor position
+					for j := len(line); j < vt.cursorX; j++ {
+						buf.WriteRune(' ')
+					}
+					// Add cursor
+					buf.WriteString("\x1B[7m \x1B[27m")
+					// Add remaining spaces to fill the line
+					for j := vt.cursorX + 1; j < vt.width; j++ {
+						buf.WriteRune(' ')
+					}
+				} else if vt.cursorX >= vt.width {
+					// Cursor is beyond line width, just pad the line
+					for j := len(line); j < vt.width; j++ {
+						buf.WriteRune(' ')
+					}
+				} else {
+					// Pad remaining part of line
+					for j := len(line); j < vt.width; j++ {
+						buf.WriteRune(' ')
+					}
+				}
+			} else {
+				// Regular line without cursor
+				buf.WriteString(string(line))
+				// Pad line to width
+				for j := len(line); j < vt.width; j++ {
+					buf.WriteRune(' ')
+				}
+			}
+
 			buf.WriteRune('\n')
 			linesRendered++
 		}
