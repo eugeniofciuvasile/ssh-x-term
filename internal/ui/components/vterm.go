@@ -14,8 +14,8 @@ import (
 type VTerminal struct {
 	width         int
 	height        int
-	buffer        [][]rune // Terminal buffer [row][col]
-	scrollback    [][]rune // Scrollback buffer for scrolling
+	buffer        [][]cell // Terminal buffer [row][col]
+	scrollback    [][]cell // Scrollback buffer for scrolling
 	cursorX       int
 	cursorY       int
 	scrollOffset  int // How many lines scrolled back
@@ -47,6 +47,12 @@ type cellAttrs struct {
 	reverse bool
 }
 
+// cell represents a single terminal cell with character and attributes
+type cell struct {
+	char  rune
+	attrs cellAttrs
+}
+
 // NewVTerminal creates a new virtual terminal with specified dimensions
 func NewVTerminal(width, height int) *VTerminal {
 	// Ensure minimum dimensions
@@ -73,14 +79,14 @@ func NewVTerminal(width, height int) *VTerminal {
 }
 
 func (vt *VTerminal) initBuffer() {
-	vt.buffer = make([][]rune, vt.height)
+	vt.buffer = make([][]cell, vt.height)
 	for i := range vt.buffer {
-		vt.buffer[i] = make([]rune, vt.width)
+		vt.buffer[i] = make([]cell, vt.width)
 		for j := range vt.buffer[i] {
-			vt.buffer[i][j] = ' '
+			vt.buffer[i][j] = cell{char: ' ', attrs: vt.defaultAttrs}
 		}
 	}
-	vt.scrollback = make([][]rune, 0, vt.maxScrollback)
+	vt.scrollback = make([][]cell, 0, vt.maxScrollback)
 }
 
 // Resize changes the terminal dimensions
@@ -222,7 +228,7 @@ func (vt *VTerminal) putChar(r rune) {
 	}
 
 	if vt.cursorY < len(vt.buffer) && vt.cursorX < len(vt.buffer[vt.cursorY]) {
-		vt.buffer[vt.cursorY][vt.cursorX] = r
+		vt.buffer[vt.cursorY][vt.cursorX] = cell{char: r, attrs: vt.attrs}
 	}
 	vt.cursorX++
 }
@@ -238,9 +244,9 @@ func (vt *VTerminal) newLine() {
 
 		// Shift buffer up
 		copy(vt.buffer, vt.buffer[1:])
-		vt.buffer[vt.height-1] = make([]rune, vt.width)
+		vt.buffer[vt.height-1] = make([]cell, vt.width)
 		for i := range vt.buffer[vt.height-1] {
-			vt.buffer[vt.height-1][i] = ' '
+			vt.buffer[vt.height-1][i] = cell{char: ' ', attrs: vt.defaultAttrs}
 		}
 		vt.cursorY = vt.height - 1
 	}
@@ -550,14 +556,14 @@ func (vt *VTerminal) eraseDisplay(mode int) {
 		if vt.cursorY < len(vt.buffer) {
 			for x := vt.cursorX; x < vt.width; x++ {
 				if x < len(vt.buffer[vt.cursorY]) {
-					vt.buffer[vt.cursorY][x] = ' '
+					vt.buffer[vt.cursorY][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 				}
 			}
 			// Clear all lines below
 			for y := vt.cursorY + 1; y < vt.height; y++ {
 				for x := 0; x < vt.width; x++ {
 					if y < len(vt.buffer) && x < len(vt.buffer[y]) {
-						vt.buffer[y][x] = ' '
+						vt.buffer[y][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 					}
 				}
 			}
@@ -567,7 +573,7 @@ func (vt *VTerminal) eraseDisplay(mode int) {
 		for y := 0; y < vt.cursorY; y++ {
 			for x := 0; x < vt.width; x++ {
 				if y < len(vt.buffer) && x < len(vt.buffer[y]) {
-					vt.buffer[y][x] = ' '
+					vt.buffer[y][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 				}
 			}
 		}
@@ -575,7 +581,7 @@ func (vt *VTerminal) eraseDisplay(mode int) {
 		if vt.cursorY < len(vt.buffer) {
 			for x := 0; x <= vt.cursorX; x++ {
 				if x < len(vt.buffer[vt.cursorY]) {
-					vt.buffer[vt.cursorY][x] = ' '
+					vt.buffer[vt.cursorY][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 				}
 			}
 		}
@@ -583,7 +589,7 @@ func (vt *VTerminal) eraseDisplay(mode int) {
 		for y := 0; y < vt.height; y++ {
 			for x := 0; x < vt.width; x++ {
 				if y < len(vt.buffer) && x < len(vt.buffer[y]) {
-					vt.buffer[y][x] = ' '
+					vt.buffer[y][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 				}
 			}
 		}
@@ -603,19 +609,19 @@ func (vt *VTerminal) eraseLine(mode int) {
 	case 0: // Erase from cursor to end of line
 		for x := vt.cursorX; x < vt.width; x++ {
 			if x < len(vt.buffer[vt.cursorY]) {
-				vt.buffer[vt.cursorY][x] = ' '
+				vt.buffer[vt.cursorY][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 			}
 		}
 	case 1: // Erase from start of line to cursor
 		for x := 0; x <= vt.cursorX; x++ {
 			if x < len(vt.buffer[vt.cursorY]) {
-				vt.buffer[vt.cursorY][x] = ' '
+				vt.buffer[vt.cursorY][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 			}
 		}
 	case 2: // Erase entire line
 		for x := 0; x < vt.width; x++ {
 			if x < len(vt.buffer[vt.cursorY]) {
-				vt.buffer[vt.cursorY][x] = ' '
+				vt.buffer[vt.cursorY][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 			}
 		}
 	}
@@ -734,7 +740,7 @@ func (vt *VTerminal) insertLines(n int) {
 		if vt.cursorY+i < len(vt.buffer) {
 			for x := 0; x < vt.width; x++ {
 				if x < len(vt.buffer[vt.cursorY+i]) {
-					vt.buffer[vt.cursorY+i][x] = ' '
+					vt.buffer[vt.cursorY+i][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 				}
 			}
 		}
@@ -764,7 +770,7 @@ func (vt *VTerminal) deleteLines(n int) {
 		if i >= 0 && i < len(vt.buffer) {
 			for x := 0; x < vt.width; x++ {
 				if x < len(vt.buffer[i]) {
-					vt.buffer[i][x] = ' '
+					vt.buffer[i][x] = cell{char: ' ', attrs: vt.defaultAttrs}
 				}
 			}
 		}
@@ -794,7 +800,7 @@ func (vt *VTerminal) deleteChars(n int) {
 
 	// Fill the end with spaces
 	for i := len(line) - n; i < len(line); i++ {
-		line[i] = ' '
+		line[i] = cell{char: ' ', attrs: vt.defaultAttrs}
 	}
 }
 
@@ -821,7 +827,7 @@ func (vt *VTerminal) insertChars(n int) {
 
 	// Fill the inserted positions with spaces
 	for i := vt.cursorX; i < vt.cursorX+n && i < len(line); i++ {
-		line[i] = ' '
+		line[i] = cell{char: ' ', attrs: vt.defaultAttrs}
 	}
 }
 
@@ -835,7 +841,7 @@ func (vt *VTerminal) eraseChars(n int) {
 
 	// Erase up to n characters or end of line
 	for i := 0; i < n && vt.cursorX+i < len(line); i++ {
-		line[vt.cursorX+i] = ' '
+		line[vt.cursorX+i] = cell{char: ' ', attrs: vt.defaultAttrs}
 	}
 }
 
@@ -880,7 +886,7 @@ func (vt *VTerminal) Render() string {
 		// Show scrollback lines
 		scrollbackStart := scrollbackLen - vt.scrollOffset
 		for i := scrollbackStart; i < scrollbackLen && (i-scrollbackStart) < vt.height; i++ {
-			buf.WriteString(string(vt.scrollback[i]))
+			vt.renderLine(&buf, vt.scrollback[i], false, -1)
 			buf.WriteRune('\n')
 			linesRendered++
 		}
@@ -888,7 +894,7 @@ func (vt *VTerminal) Render() string {
 		// Fill remaining lines with buffer if needed
 		remainingLines := vt.height - (scrollbackLen - scrollbackStart)
 		for i := 0; i < remainingLines && i < len(vt.buffer); i++ {
-			buf.WriteString(string(vt.buffer[i]))
+			vt.renderLine(&buf, vt.buffer[i], false, -1)
 			buf.WriteRune('\n')
 			linesRendered++
 		}
@@ -899,50 +905,9 @@ func (vt *VTerminal) Render() string {
 
 			// Render line with visual cursor if this is the cursor line
 			if showCursor && i == vt.cursorY {
-				for j := range line {
-					if j == vt.cursorX {
-						// Render cursor at this position using inverse video
-						char := line[j]
-						if char == ' ' || char == 0 {
-							char = ' '
-						}
-						// Use ANSI SGR codes for inverse video: ESC[7m for inverse, ESC[27m to turn it off
-						buf.WriteString(fmt.Sprintf("\x1B[7m%c\x1B[27m", char))
-					} else {
-						buf.WriteRune(line[j])
-					}
-				}
-
-				// If cursor is at the end of the line (beyond visible characters)
-				if vt.cursorX >= len(line) && vt.cursorX < vt.width {
-					// Add spaces until cursor position
-					for j := len(line); j < vt.cursorX; j++ {
-						buf.WriteRune(' ')
-					}
-					// Add cursor
-					buf.WriteString("\x1B[7m \x1B[27m")
-					// Add remaining spaces to fill the line
-					for j := vt.cursorX + 1; j < vt.width; j++ {
-						buf.WriteRune(' ')
-					}
-				} else if vt.cursorX >= vt.width {
-					// Cursor is beyond line width, just pad the line
-					for j := len(line); j < vt.width; j++ {
-						buf.WriteRune(' ')
-					}
-				} else {
-					// Pad remaining part of line
-					for j := len(line); j < vt.width; j++ {
-						buf.WriteRune(' ')
-					}
-				}
+				vt.renderLine(&buf, line, true, vt.cursorX)
 			} else {
-				// Regular line without cursor
-				buf.WriteString(string(line))
-				// Pad line to width
-				for j := len(line); j < vt.width; j++ {
-					buf.WriteRune(' ')
-				}
+				vt.renderLine(&buf, line, false, -1)
 			}
 
 			buf.WriteRune('\n')
@@ -958,6 +923,105 @@ func (vt *VTerminal) Render() string {
 	}
 
 	return buf.String()
+}
+
+// renderLine renders a single line with color attributes
+func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool, cursorX int) {
+	var currentAttrs cellAttrs
+	currentAttrs.fgColor = -1
+	currentAttrs.bgColor = -1
+
+	for j := 0; j < vt.width; j++ {
+		var c cell
+		if j < len(line) {
+			c = line[j]
+		} else {
+			c = cell{char: ' ', attrs: vt.defaultAttrs}
+		}
+
+		// Check if this is the cursor position
+		isCursor := showCursor && j == cursorX
+
+		// If cursor position, apply inverse video
+		var attrs cellAttrs
+		if isCursor {
+			attrs = c.attrs
+			attrs.reverse = !attrs.reverse
+		} else {
+			attrs = c.attrs
+		}
+
+		// Apply attributes if they changed
+		if attrs.fgColor != currentAttrs.fgColor || attrs.bgColor != currentAttrs.bgColor ||
+			attrs.bold != currentAttrs.bold || attrs.reverse != currentAttrs.reverse {
+			
+			// Reset to default if needed
+			if attrs.fgColor == -1 && attrs.bgColor == -1 && !attrs.bold && !attrs.reverse {
+				buf.WriteString("\x1B[0m")
+			} else {
+				// Build SGR sequence
+				var sgr []string
+				
+				// Handle reverse video
+				if attrs.reverse != currentAttrs.reverse {
+					if attrs.reverse {
+						sgr = append(sgr, "7")
+					} else {
+						sgr = append(sgr, "27")
+					}
+				}
+				
+				// Handle bold
+				if attrs.bold != currentAttrs.bold {
+					if attrs.bold {
+						sgr = append(sgr, "1")
+					} else {
+						sgr = append(sgr, "22")
+					}
+				}
+				
+				// Handle foreground color
+				if attrs.fgColor != currentAttrs.fgColor {
+					if attrs.fgColor == -1 {
+						sgr = append(sgr, "39")
+					} else if attrs.fgColor < 8 {
+						sgr = append(sgr, fmt.Sprintf("%d", 30+attrs.fgColor))
+					} else if attrs.fgColor < 16 {
+						sgr = append(sgr, fmt.Sprintf("%d", 90+attrs.fgColor-8))
+					} else {
+						sgr = append(sgr, fmt.Sprintf("38;5;%d", attrs.fgColor))
+					}
+				}
+				
+				// Handle background color
+				if attrs.bgColor != currentAttrs.bgColor {
+					if attrs.bgColor == -1 {
+						sgr = append(sgr, "49")
+					} else if attrs.bgColor < 8 {
+						sgr = append(sgr, fmt.Sprintf("%d", 40+attrs.bgColor))
+					} else if attrs.bgColor < 16 {
+						sgr = append(sgr, fmt.Sprintf("%d", 100+attrs.bgColor-8))
+					} else {
+						sgr = append(sgr, fmt.Sprintf("48;5;%d", attrs.bgColor))
+					}
+				}
+				
+				if len(sgr) > 0 {
+					buf.WriteString(fmt.Sprintf("\x1B[%sm", strings.Join(sgr, ";")))
+				}
+			}
+			
+			currentAttrs = attrs
+		}
+
+		// Write the character
+		buf.WriteRune(c.char)
+	}
+
+	// Reset attributes at end of line
+	if currentAttrs.fgColor != -1 || currentAttrs.bgColor != -1 || currentAttrs.bold || currentAttrs.reverse {
+		buf.WriteString("\x1B[0m")
+	}
 }
 
 // GetCursorPosition returns the current cursor position
@@ -1068,7 +1132,7 @@ func (vt *VTerminal) CopySelection() error {
 	if startY == endY {
 		if startY < len(vt.buffer) {
 			for x := startX; x <= endX && x < len(vt.buffer[startY]); x++ {
-				text.WriteRune(vt.buffer[startY][x])
+				text.WriteRune(vt.buffer[startY][x].char)
 			}
 		}
 	} else {
@@ -1076,7 +1140,7 @@ func (vt *VTerminal) CopySelection() error {
 		// First line
 		if startY < len(vt.buffer) {
 			for x := startX; x < len(vt.buffer[startY]); x++ {
-				text.WriteRune(vt.buffer[startY][x])
+				text.WriteRune(vt.buffer[startY][x].char)
 			}
 			text.WriteRune('\n')
 		}
@@ -1084,7 +1148,7 @@ func (vt *VTerminal) CopySelection() error {
 		// Middle lines
 		for y := startY + 1; y < endY && y < len(vt.buffer); y++ {
 			for x := 0; x < len(vt.buffer[y]); x++ {
-				text.WriteRune(vt.buffer[y][x])
+				text.WriteRune(vt.buffer[y][x].char)
 			}
 			text.WriteRune('\n')
 		}
@@ -1092,7 +1156,7 @@ func (vt *VTerminal) CopySelection() error {
 		// Last line
 		if endY < len(vt.buffer) {
 			for x := 0; x <= endX && x < len(vt.buffer[endY]); x++ {
-				text.WriteRune(vt.buffer[endY][x])
+				text.WriteRune(vt.buffer[endY][x].char)
 			}
 		}
 	}
