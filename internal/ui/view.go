@@ -30,10 +30,6 @@ var (
 			Bold(true).
 			Foreground(lipgloss.Color("9")).
 			Padding(0, 2)
-
-	loadingStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
-			Padding(0, 2)
 )
 
 // View renders the UI model with full-screen layout
@@ -42,13 +38,10 @@ func (m *Model) View() string {
 	// Header: 1 line for title
 	// Footer: 1 line for help text
 	// Content: remaining space
-	
+
 	headerHeightLines := 1
 	footerHeightLines := 1
-	contentHeight := m.height - headerHeightLines - footerHeightLines
-	if contentHeight < 3 {
-		contentHeight = 3
-	}
+	contentHeight := max(m.height-headerHeightLines-footerHeightLines, 3)
 
 	// Set widths for header and footer to match terminal width
 	headerStyle = headerStyle.Width(m.width)
@@ -63,7 +56,7 @@ func (m *Model) View() string {
 
 	// Render content
 	var contentBuilder strings.Builder
-	
+
 	// Show error message if present
 	if m.errorMessage != "" {
 		contentBuilder.WriteString(errorStyle.Render(m.errorMessage))
@@ -90,7 +83,7 @@ func (m *Model) View() string {
 	}
 
 	content := contentBuilder.String()
-	
+
 	// For terminal state, ensure content fills the available space
 	// The terminal component already includes its own header and footer
 	if m.state == StateSSHTerminal {
@@ -124,12 +117,12 @@ func (m *Model) getHelpText() string {
 			if m.terminal.IsSessionClosed() {
 				return "Session closed - Press ESC to return"
 			}
-			
+
 			// Show detailed help for wider terminals, compact for narrow
 			if m.terminal.GetWidth() < 80 || m.width < 80 {
 				return "ESC: Exit | CTRL+D: EOF | Scroll: PgUp/PgDn"
 			}
-			
+
 			return "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll Vertically | Tab: Complete Command | Mouse: Copy Text"
 		}
 		return "esc: disconnect"

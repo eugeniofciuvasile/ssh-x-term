@@ -19,13 +19,6 @@ var (
 				Align(lipgloss.Center).
 				Padding(0, 1)
 
-	terminalFooterStyle = lipgloss.NewStyle().
-				Bold(true).
-				Background(lipgloss.Color("8")).
-				Foreground(lipgloss.Color("255")).
-				Align(lipgloss.Center).
-				Padding(0, 1)
-
 	terminalErrorStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("9")).

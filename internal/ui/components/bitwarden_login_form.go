@@ -52,7 +52,8 @@ func (f *BitwardenLoginForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			f.canceled = true
 			return f, nil
 		case "enter":
-			if f.stage == 0 {
+			switch f.stage {
+			case 0:
 				if f.passwordInput.Value() == "" {
 					f.errorMsg = "Password required"
 					return f, nil
@@ -64,17 +65,18 @@ func (f *BitwardenLoginForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				f.otpInput.Focus()
 				f.otpInput.Width = 40
 				return f, nil
-			} else if f.stage == 1 {
+			case 1:
 				f.submitted = true
 				return f, nil
 			}
 		}
 	}
-	if f.stage == 0 {
+	switch f.stage {
+	case 0:
 		var cmd tea.Cmd
 		f.passwordInput, cmd = f.passwordInput.Update(msg)
 		return f, cmd
-	} else if f.stage == 1 {
+	case 1:
 		var cmd tea.Cmd
 		f.otpInput, cmd = f.otpInput.Update(msg)
 		return f, cmd
@@ -86,24 +88,25 @@ func (f *BitwardenLoginForm) View() string {
 	if f.canceled {
 		return bwFormStyle.Render("Login canceled.")
 	}
-	
+
 	var content string
-	if f.stage == 0 {
+	switch f.stage {
+	case 0:
 		content = bwTitleStyle.Render("Bitwarden Login") + "\n\n"
 		content += "Enter your Bitwarden password:\n" + f.passwordInput.View()
 		if f.errorMsg != "" {
 			content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.errorMsg)
 		}
-	} else if f.stage == 1 {
+	case 1:
 		content = bwTitleStyle.Render("Bitwarden Login - 2FA") + "\n\n"
 		content += "Enter 2FA code if required (or leave blank):\n" + f.otpInput.View()
 		if f.errorMsg != "" {
 			content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.errorMsg)
 		}
-	} else {
+	default:
 		content = "Logging in..."
 	}
-	
+
 	return bwFormStyle.Render(content)
 }
 
