@@ -954,14 +954,14 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 		// Apply attributes if they changed
 		if attrs.fgColor != currentAttrs.fgColor || attrs.bgColor != currentAttrs.bgColor ||
 			attrs.bold != currentAttrs.bold || attrs.reverse != currentAttrs.reverse {
-			
+
 			// Reset to default if needed
 			if attrs.fgColor == -1 && attrs.bgColor == -1 && !attrs.bold && !attrs.reverse {
 				buf.WriteString("\x1B[0m")
 			} else {
 				// Build SGR sequence
 				var sgr []string
-				
+
 				// Handle reverse video
 				if attrs.reverse != currentAttrs.reverse {
 					if attrs.reverse {
@@ -970,7 +970,7 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 						sgr = append(sgr, "27")
 					}
 				}
-				
+
 				// Handle bold
 				if attrs.bold != currentAttrs.bold {
 					if attrs.bold {
@@ -979,7 +979,7 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 						sgr = append(sgr, "22")
 					}
 				}
-				
+
 				// Handle foreground color
 				if attrs.fgColor != currentAttrs.fgColor {
 					if attrs.fgColor == -1 {
@@ -992,7 +992,7 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 						sgr = append(sgr, fmt.Sprintf("38;5;%d", attrs.fgColor))
 					}
 				}
-				
+
 				// Handle background color
 				if attrs.bgColor != currentAttrs.bgColor {
 					if attrs.bgColor == -1 {
@@ -1005,12 +1005,12 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 						sgr = append(sgr, fmt.Sprintf("48;5;%d", attrs.bgColor))
 					}
 				}
-				
+
 				if len(sgr) > 0 {
 					buf.WriteString(fmt.Sprintf("\x1B[%sm", strings.Join(sgr, ";")))
 				}
 			}
-			
+
 			currentAttrs = attrs
 		}
 

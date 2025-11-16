@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -55,15 +56,19 @@ type TerminalComponent struct {
 	finished       bool
 	mutex          sync.Mutex
 	sessionClosed  bool
-	sessionStarted bool // Track if session has been initiated
+	sessionStarted bool      // Track if session has been initiated
+	lastEscTime    time.Time // Track when ESC was last pressed
+	escPressCount  int       // Track number of ESC presses
+	escTimeoutSecs float64   // Timeout window for double ESC (default 2 seconds)
 }
 
 // NewTerminalComponent creates a new terminal component
 func NewTerminalComponent(conn config.SSHConnection) *TerminalComponent {
 	return &TerminalComponent{
-		connection: conn,
-		status:     "Connecting...",
-		loading:    true,
+		connection:     conn,
+		status:         "Connecting...",
+		loading:        true,
+		escTimeoutSecs: 2.0, // Default 2 second timeout for double ESC
 	}
 }
 
@@ -250,10 +255,43 @@ func (t *TerminalComponent) handleSessionError(err error) {
 func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		t.finished = true
-		if t.session != nil {
-			t.session.Close()
+		// Double ESC logic:
+		// 1. If session is already closed (via logout/exit), allow single ESC
+		// 2. Otherwise, require double ESC within timeout window
+
+		t.mutex.Lock()
+		sessionClosed := t.sessionClosed
+		t.mutex.Unlock()
+
+		// If session already closed (logout/exit/Ctrl+D), allow single ESC
+		if sessionClosed {
+			t.finished = true
+			if t.session != nil {
+				t.session.Close()
+			}
+			return t, nil
 		}
+
+		// Track ESC presses for double-ESC detection
+		now := time.Now()
+		timeSinceLastEsc := now.Sub(t.lastEscTime).Seconds()
+
+		// If within timeout window and this is the second ESC, close the session
+		if t.escPressCount > 0 && timeSinceLastEsc <= t.escTimeoutSecs {
+			t.finished = true
+			if t.session != nil {
+				t.session.Close()
+			}
+			// Reset ESC tracking
+			t.escPressCount = 0
+			t.lastEscTime = time.Time{}
+			return t, nil
+		}
+
+		// First ESC press or timeout expired - start/restart the sequence
+		t.escPressCount = 1
+		t.lastEscTime = now
+		// Don't close the session yet, wait for second ESC
 		return t, nil
 
 	case "pgup", "shift+up":
@@ -265,6 +303,11 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return t, nil
 
 	default:
+		// Reset ESC tracking on any other key press
+		if t.escPressCount > 0 {
+			t.escPressCount = 0
+			t.lastEscTime = time.Time{}
+		}
 		t.forwardKeyToSession(msg.String())
 	}
 
