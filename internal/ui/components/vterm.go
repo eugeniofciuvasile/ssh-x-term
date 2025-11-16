@@ -936,7 +936,7 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 	// Calculate selection range for this line (if any)
 	var hasSelection bool
 	var selStartX, selEndX int
-	
+
 	if vt.selectionStart != nil && vt.selectionEnd != nil {
 		startY, startX := vt.selectionStart.y, vt.selectionStart.x
 		endY, endX := vt.selectionEnd.y, vt.selectionEnd.x
@@ -969,7 +969,7 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 			}
 		}
 	}
-	
+
 	for j := 0; j < vt.width; j++ {
 		var c cell
 		if j < len(line) {
@@ -980,7 +980,7 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 
 		// Check if this is the cursor position
 		isCursor := showCursor && j == cursorX
-		
+
 		// Check if this character is selected
 		isSelected := hasSelection && j >= selStartX && j <= selEndX
 
