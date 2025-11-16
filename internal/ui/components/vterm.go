@@ -243,18 +243,7 @@ func (vt *VTerminal) putChar(r rune) {
 		vt.pendingWrap = false
 	}
 
-	// Check if we're at the last column after writing
-	if vt.cursorX >= vt.width {
-		if vt.autoWrap {
-			// Don't wrap yet, set pending wrap state
-			vt.pendingWrap = true
-			vt.cursorX = vt.width - 1 // Keep cursor at last column
-		} else {
-			// Without auto-wrap, stay at the last column
-			vt.cursorX = vt.width - 1
-		}
-	}
-
+	// Write character at current cursor position
 	if vt.cursorY < len(vt.buffer) && vt.cursorX < len(vt.buffer[vt.cursorY]) {
 		vt.buffer[vt.cursorY][vt.cursorX] = cell{char: r, attrs: vt.attrs}
 	}
@@ -262,10 +251,16 @@ func (vt *VTerminal) putChar(r rune) {
 	// Move cursor forward
 	vt.cursorX++
 
-	// If we just moved to position 'width', set pending wrap
-	if vt.cursorX >= vt.width && vt.autoWrap {
-		vt.pendingWrap = true
-		vt.cursorX = vt.width - 1 // Visual cursor stays at last column
+	// Handle cursor after write
+	if vt.cursorX >= vt.width {
+		if vt.autoWrap {
+			// Set pending wrap - don't wrap until next character
+			vt.pendingWrap = true
+			vt.cursorX = vt.width - 1 // Visual cursor stays at last column
+		} else {
+			// Without auto-wrap, stay at the last column
+			vt.cursorX = vt.width - 1
+		}
 	}
 }
 
