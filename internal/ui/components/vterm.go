@@ -932,6 +932,12 @@ func (vt *VTerminal) Render() string {
 		if vt.cursorX > 0 {
 			content += fmt.Sprintf("\x1B[%dC", vt.cursorX)
 		}
+
+		// Show cursor and make it blink (DECTCEM)
+		content += "\x1B[?25h"
+	} else {
+		// Hide cursor when scrolled back
+		content += "\x1B[?25l"
 	}
 
 	return content
