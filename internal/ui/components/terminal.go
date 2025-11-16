@@ -45,21 +45,21 @@ type SSHSessionMsg struct {
 
 // TerminalComponent represents a terminal component for SSH sessions
 type TerminalComponent struct {
-	connection      config.SSHConnection
-	session         *ssh.BubbleTeaSession
-	vterm           *VTerminal
-	status          string
-	error           error
-	loading         bool
-	width           int
-	height          int
-	finished        bool
-	mutex           sync.Mutex
-	sessionClosed   bool
-	sessionStarted  bool      // Track if session has been initiated
-	lastEscTime     time.Time // Track when ESC was last pressed
-	escPressCount   int       // Track number of ESC presses
-	escTimeoutSecs  float64   // Timeout window for double ESC (default 2 seconds)
+	connection     config.SSHConnection
+	session        *ssh.BubbleTeaSession
+	vterm          *VTerminal
+	status         string
+	error          error
+	loading        bool
+	width          int
+	height         int
+	finished       bool
+	mutex          sync.Mutex
+	sessionClosed  bool
+	sessionStarted bool      // Track if session has been initiated
+	lastEscTime    time.Time // Track when ESC was last pressed
+	escPressCount  int       // Track number of ESC presses
+	escTimeoutSecs float64   // Timeout window for double ESC (default 2 seconds)
 }
 
 // NewTerminalComponent creates a new terminal component
@@ -258,11 +258,11 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Double ESC logic:
 		// 1. If session is already closed (via logout/exit), allow single ESC
 		// 2. Otherwise, require double ESC within timeout window
-		
+
 		t.mutex.Lock()
 		sessionClosed := t.sessionClosed
 		t.mutex.Unlock()
-		
+
 		// If session already closed (logout/exit/Ctrl+D), allow single ESC
 		if sessionClosed {
 			t.finished = true
@@ -271,11 +271,11 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return t, nil
 		}
-		
+
 		// Track ESC presses for double-ESC detection
 		now := time.Now()
 		timeSinceLastEsc := now.Sub(t.lastEscTime).Seconds()
-		
+
 		// If within timeout window and this is the second ESC, close the session
 		if t.escPressCount > 0 && timeSinceLastEsc <= t.escTimeoutSecs {
 			t.finished = true
@@ -287,7 +287,7 @@ func (t *TerminalComponent) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			t.lastEscTime = time.Time{}
 			return t, nil
 		}
-		
+
 		// First ESC press or timeout expired - start/restart the sequence
 		t.escPressCount = 1
 		t.lastEscTime = now

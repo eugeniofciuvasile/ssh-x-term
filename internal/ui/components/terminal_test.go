@@ -191,7 +191,7 @@ func TestTerminalComponent_DoubleEscBehavior(t *testing.T) {
 		// because they are special navigation keys, but in our current implementation
 		// they are separate cases and don't explicitly reset.
 		// Let's test that ESC still works after scrolling.
-		
+
 		// Second ESC press
 		_, _ = tc.handleKey(escMsg)
 

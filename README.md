@@ -237,7 +237,9 @@ sxt
 5. **SSH Session:**
     - Fully integrated terminal within Bubble Tea UI
     - **Navigation:**
-      - `Esc` to disconnect and return to connection list
+      - `Esc` `Esc` (double press) to disconnect and return to connection list
+        - For security, requires pressing ESC twice within 2 seconds
+        - After session is properly closed (via `logout`, `exit`, or `Ctrl+D`), single `Esc` is allowed
       - `Ctrl+D` to send EOF (End of File) signal
     - **Scrolling:**
       - `PgUp` / `PgDn` to scroll up/down by 10 lines
