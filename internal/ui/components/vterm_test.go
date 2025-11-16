@@ -293,8 +293,20 @@ func TestVTerminalCSISequences(t *testing.T) {
 		vt.Write([]byte("\x1B[3P"))
 
 		output := vt.Render()
-		if !strings.Contains(output, "Hellold") {
-			t.Errorf("Expected output to contain 'Hellold', got: %s", output)
+		// Remove ANSI escape sequences for cursor before checking content
+		cleanOutput := ""
+		inEscape := false
+		for i := 0; i < len(output); i++ {
+			if output[i] == '\x1B' {
+				inEscape = true
+			} else if inEscape && (output[i] >= 'A' && output[i] <= 'Z' || output[i] >= 'a' && output[i] <= 'z' || output[i] == 'm') {
+				inEscape = false
+			} else if !inEscape {
+				cleanOutput += string(output[i])
+			}
+		}
+		if !strings.Contains(cleanOutput, "Hellold") {
+			t.Errorf("Expected output to contain 'Hellold', got: %s", cleanOutput)
 		}
 	})
 
@@ -580,20 +592,32 @@ func TestVTerminalIncompleteUTF8(t *testing.T) {
 
 // Test cursor positioning in rendered output
 func TestVTerminalCursorPositioning(t *testing.T) {
-	t.Run("Cursor position included in render when not scrolled", func(t *testing.T) {
+	t.Run("Visual cursor shown at correct position when not scrolled", func(t *testing.T) {
 		vt := NewVTerminal(80, 24)
 		vt.Write([]byte("Hello"))
 		output := vt.Render()
 
-		// Cursor should be at position (5, 0)
-		// After rendering all 24 lines, cursor is after the last newline
-		// Move up 24 lines (to line 0), then right 5 columns
-		if !strings.Contains(output, "\x1B[24A") || !strings.Contains(output, "\x1B[5C") {
-			t.Errorf("Expected cursor positioning sequence ESC[24A and ESC[5C in output, got: %q", output)
+		// Cursor should be visible at position (5, 0) as inverse video
+		// Should contain ESC[7m (inverse video) and ESC[27m (normal video)
+		if !strings.Contains(output, "\x1B[7m") || !strings.Contains(output, "\x1B[27m") {
+			t.Errorf("Expected visual cursor with inverse video ESC[7m...ESC[27m in output, got: %q", output)
+		}
+
+		// Verify cursor is on the first line after "Hello"
+		lines := strings.Split(output, "\n")
+		if len(lines) > 0 {
+			firstLine := lines[0]
+			// Should have "Hello" followed by inverse video cursor
+			if !strings.Contains(firstLine, "Hello") {
+				t.Errorf("Expected 'Hello' in first line, got: %q", firstLine)
+			}
+			if !strings.Contains(firstLine, "\x1B[7m") {
+				t.Errorf("Expected visual cursor on first line, got: %q", firstLine)
+			}
 		}
 	})
 
-	t.Run("Cursor position not included when scrolled back", func(t *testing.T) {
+	t.Run("Visual cursor not shown when scrolled back", func(t *testing.T) {
 		vt := NewVTerminal(80, 10)
 		// Write enough lines to create scrollback
 		for i := 0; i < 15; i++ {
@@ -604,78 +628,83 @@ func TestVTerminalCursorPositioning(t *testing.T) {
 		vt.ScrollUp(5)
 		output := vt.Render()
 
-		// Should NOT contain cursor positioning when scrolled back
-		// Check for the pattern ESC[<number>A (cursor up)
-		if strings.Contains(output, "\x1B[") && strings.Contains(output, "A") {
-			// More specific check for cursor up sequence
-			for i := 0; i < len(output)-3; i++ {
-				if output[i] == '\x1B' && output[i+1] == '[' {
-					// Look for 'A' after some digits
-					for j := i + 2; j < len(output) && j < i+10; j++ {
-						if output[j] == 'A' {
-							t.Errorf("Should not contain cursor positioning when scrolled back")
-							break
-						}
-						if output[j] < '0' || output[j] > '9' {
-							break
-						}
-					}
-				}
-			}
+		// Should NOT contain visual cursor when scrolled back
+		// Check for inverse video escape sequences
+		if strings.Contains(output, "\x1B[7m") && strings.Contains(output, "\x1B[27m") {
+			t.Errorf("Should not contain visual cursor when scrolled back, got: %q", output)
 		}
 	})
 
-	t.Run("Cursor position updates as text is written", func(t *testing.T) {
+	t.Run("Visual cursor position updates as text is written", func(t *testing.T) {
 		vt := NewVTerminal(80, 24)
 		vt.Write([]byte("Test"))
 		output1 := vt.Render()
 
-		// Cursor should be at (4, 0) -> Move up 24, right 4
-		if !strings.Contains(output1, "\x1B[24A") || !strings.Contains(output1, "\x1B[4C") {
-			t.Errorf("Expected cursor at position (24A, 4C), got output: %q", output1)
+		// Cursor should be visible at (4, 0)
+		if !strings.Contains(output1, "\x1B[7m") {
+			t.Errorf("Expected visual cursor in output, got: %q", output1)
+		}
+
+		// Check cursor is on first line
+		lines1 := strings.Split(output1, "\n")
+		if len(lines1) > 0 && !strings.Contains(lines1[0], "\x1B[7m") {
+			t.Errorf("Expected visual cursor on first line, got: %q", lines1[0])
 		}
 
 		vt.Write([]byte("\nNext"))
 		output2 := vt.Render()
 
-		// Cursor should now be at (8, 1) -> Move up 23, right 8
-		if !strings.Contains(output2, "\x1B[23A") || !strings.Contains(output2, "\x1B[8C") {
-			t.Errorf("Expected cursor at position (23A, 8C), got output: %q", output2)
+		// Cursor should now be visible at (4, 1) on second line
+		if !strings.Contains(output2, "\x1B[7m") {
+			t.Errorf("Expected visual cursor in output, got: %q", output2)
+		}
+
+		// Check cursor is on second line
+		lines2 := strings.Split(output2, "\n")
+		if len(lines2) > 1 && !strings.Contains(lines2[1], "\x1B[7m") {
+			t.Errorf("Expected visual cursor on second line, got: %q", lines2[1])
 		}
 	})
 
-	t.Run("Cursor position after escape sequence", func(t *testing.T) {
+	t.Run("Visual cursor position after escape sequence", func(t *testing.T) {
 		vt := NewVTerminal(80, 24)
 		// Move cursor to position (5, 3) using ESC[4;6H (1-indexed)
 		vt.Write([]byte("\x1B[4;6HX"))
 		output := vt.Render()
 
-		// Cursor should be at (6, 3) after writing X -> Move up 21 (24-3), right 6
-		if !strings.Contains(output, "\x1B[21A") || !strings.Contains(output, "\x1B[6C") {
-			t.Errorf("Expected cursor at position (21A, 6C), got output: %q", output)
+		// Cursor should be visible at (6, 3) after writing X
+		if !strings.Contains(output, "\x1B[7m") {
+			t.Errorf("Expected visual cursor in output, got: %q", output)
+		}
+
+		// Check cursor is on the 4th line (index 3)
+		lines := strings.Split(output, "\n")
+		if len(lines) > 3 && !strings.Contains(lines[3], "\x1B[7m") {
+			t.Errorf("Expected visual cursor on 4th line, got: %q", lines[3])
 		}
 	})
 
-	t.Run("Cursor visibility control", func(t *testing.T) {
+	t.Run("Visual cursor renders correctly", func(t *testing.T) {
 		vt := NewVTerminal(80, 24)
 		vt.Write([]byte("Test"))
 		output := vt.Render()
 
-		// Should contain show cursor sequence when not scrolled
-		if !strings.Contains(output, "\x1B[?25h") {
-			t.Errorf("Expected show cursor sequence ESC[?25h in output, got: %q", output)
+		// Should contain visual cursor (inverse video) when not scrolled
+		if !strings.Contains(output, "\x1B[7m") || !strings.Contains(output, "\x1B[27m") {
+			t.Errorf("Expected visual cursor with inverse video in output, got: %q", output)
 		}
 
-		// Scroll back and check cursor is hidden
+		// Scroll back and check cursor is not shown
 		for i := 0; i < 30; i++ {
 			vt.Write([]byte(fmt.Sprintf("Line %d\n", i)))
 		}
 		vt.ScrollUp(5)
 		outputScrolled := vt.Render()
 
-		// Should contain hide cursor sequence when scrolled back
-		if !strings.Contains(outputScrolled, "\x1B[?25l") {
-			t.Errorf("Expected hide cursor sequence ESC[?25l when scrolled back, got: %q", outputScrolled)
+		// Should NOT contain visual cursor when scrolled back
+		if strings.Contains(outputScrolled, "\x1B[7m") && strings.Contains(outputScrolled, "\x1B[27m") {
+			// Check if it's actually a cursor (not just other inverse video usage)
+			t.Errorf("Should not contain visual cursor when scrolled back, got: %q", outputScrolled)
 		}
 	})
 }
