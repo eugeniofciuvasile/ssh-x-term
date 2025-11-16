@@ -480,10 +480,7 @@ func (vt *VTerminal) handleCSI() {
 		if len(args) > 0 && args[0] > 0 {
 			row = args[0]
 		}
-		vt.cursorY = row - 1
-		if vt.cursorY < 0 {
-			vt.cursorY = 0
-		}
+		vt.cursorY = max(row-1, 0)
 		if vt.cursorY >= vt.height {
 			vt.cursorY = vt.height - 1
 		}
@@ -493,10 +490,7 @@ func (vt *VTerminal) handleCSI() {
 		if len(args) > 0 && args[0] > 0 {
 			col = args[0]
 		}
-		vt.cursorX = col - 1
-		if vt.cursorX < 0 {
-			vt.cursorX = 0
-		}
+		vt.cursorX = max(col-1, 0)
 		if vt.cursorX >= vt.width {
 			vt.cursorX = vt.width - 1
 		}
@@ -905,7 +899,7 @@ func (vt *VTerminal) Render() string {
 
 			// Render line with visual cursor if this is the cursor line
 			if showCursor && i == vt.cursorY {
-				for j := 0; j < len(line); j++ {
+				for j := range line {
 					if j == vt.cursorX {
 						// Render cursor at this position using inverse video
 						char := line[j]

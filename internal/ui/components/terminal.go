@@ -235,19 +235,6 @@ func (t *TerminalComponent) writeToVTerminal(data []byte) {
 	}
 }
 
-// Utility: Render the footer with helper instructions
-func (t *TerminalComponent) renderFooter() string {
-	if t.sessionClosed {
-		return "Session closed - Press ESC to return"
-	}
-
-	if t.width < 80 {
-		return "ESC: Exit | CTRL+C: Interrupt | CTRL+D: EOF"
-	}
-
-	return "ESC: Exit | CTRL+C: Interrupt | CTRL+D: EOF | PgUp/PgDn: Scroll | Mouse: Select/Copy"
-}
-
 // Utility: Handle session errors
 func (t *TerminalComponent) handleSessionError(err error) {
 	t.mutex.Lock()
