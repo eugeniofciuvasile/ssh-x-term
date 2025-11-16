@@ -165,11 +165,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// since the terminal needs to know the exact dimensions it has to work with
 			if m.state == StateSSHTerminal {
 				// The terminal gets the full content area between header and footer
-				contentHeight := m.height - headerHeight - footerHeight
-				if contentHeight < 12 { // Minimum viable height
-					contentHeight = 12
-				}
-				
+				contentHeight := max(m.height-headerHeight-footerHeight,
+					// Minimum viable height
+					12)
+
 				adjustedMsg := tea.WindowSizeMsg{
 					Width:  m.width,
 					Height: contentHeight,

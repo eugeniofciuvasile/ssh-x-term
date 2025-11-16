@@ -56,13 +56,10 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 		m.terminal = components.NewTerminalComponent(*conn)
 		m.state = StateSSHTerminal
 		m.connectionList.Reset()
-		
+
 		// Send initial size to terminal component so it can start the SSH session
 		initCmd := m.terminal.Init()
-		contentHeight := m.height - headerHeight - footerHeight
-		if contentHeight < 12 {
-			contentHeight = 12
-		}
+		contentHeight := max(m.height-headerHeight-footerHeight, 12)
 		sizeMsg := tea.WindowSizeMsg{
 			Width:  m.width,
 			Height: contentHeight,
@@ -80,13 +77,10 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 	m.terminal = components.NewTerminalComponent(*conn)
 	m.state = StateSSHTerminal
 	m.connectionList.Reset()
-	
+
 	// Send initial size to terminal component so it can start the SSH session
 	initCmd := m.terminal.Init()
-	contentHeight := m.height - headerHeight - footerHeight
-	if contentHeight < 12 {
-		contentHeight = 12
-	}
+	contentHeight := max(m.height-headerHeight-footerHeight, 12)
 	sizeMsg := tea.WindowSizeMsg{
 		Width:  m.width,
 		Height: contentHeight,

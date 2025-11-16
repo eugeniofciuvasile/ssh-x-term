@@ -12,10 +12,9 @@ import (
 var (
 	bwFocusedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	bwBlurredStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	bwNoStyle       = lipgloss.NewStyle()
 	bwFocusedButton = bwFocusedStyle.Render("[ Submit ]")
 	bwBlurredButton = fmt.Sprintf("[ %s ]", bwBlurredStyle.Render("Submit"))
-	
+
 	bwConfigFormStyle = lipgloss.NewStyle().
 				Padding(1, 2)
 
@@ -119,7 +118,7 @@ func (f *BitwardenConfigForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (f *BitwardenConfigForm) View() string {
 	var b strings.Builder
-	
+
 	b.WriteString(bwConfigTitleStyle.Render("Bitwarden Storage Setup"))
 	b.WriteString("\n\n")
 	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Server URL:", f.inputs[0].View()))

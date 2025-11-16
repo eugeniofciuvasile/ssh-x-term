@@ -69,7 +69,7 @@ func TestVTerminalScrolling(t *testing.T) {
 	vt := NewVTerminal(80, 10)
 
 	// Write enough lines to cause scrolling
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		vt.Write([]byte("Line "))
 		vt.Write([]byte{byte('0' + i)})
 		vt.Write([]byte("\n"))

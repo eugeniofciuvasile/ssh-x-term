@@ -55,8 +55,8 @@ ssh-x-term/
 │   │   └── storage.go                            # Storage interface definition
 │   ├── ssh/
 │   │   ├── client.go                             # SSH client implementation
-│   │   ├── session_unix.go                       # SSH session management (Unix)
-│   │   └── session_windows.go                    # SSH session management (Windows)
+│   │   ├── session_bubbletea_unix.go             # SSH session management (Unix)
+│   │   ├── session_bubbletea_unix.go             # SSH session management (Windows)
 │   └── ui/
 │       ├── components/
 │       │   ├── bitwarden_collection_list.go      # Bitwarden collection selector
@@ -67,16 +67,16 @@ ssh-x-term/
 │       │   ├── connection_list.go                # List of SSH connections
 │       │   ├── form.go                           # Form for adding/editing connections
 │       │   ├── storage_select.go                 # Credential storage selection (Local/Bitwarden)
-│       │   └── terminal.go                       # Terminal component for SSH sessions
+│       │   ├── terminal.go                       # Terminal component for SSH sessions
+│       │   ├── vterm.go                          # Virtual terminal component integrated inside Bubble Tea
+│       │   └── vterm_test.go                       # Virtual terminal tests
 │       ├── connection_handler.go                 # Connection lifecycle management
 │       ├── model.go                              # Main UI model and state
 │       ├── update.go                             # Update logic for UI events
 │       └── view.go                               # View rendering logic
 ├── pkg/
 │   └── sshutil/
-│       ├── auth.go                               # Authentication utilities (passh/plink, etc.)
-│       ├── terminal_unix.go                      # Terminal utilities (Unix)
-│       └── terminal_windows.go                   # Terminal utilities (Windows)
+│       └── auth.go                               # Authentication utilities
 ├── go.mod                                        # Go module dependencies
 ├── go.sum                                        # Go module checksums
 ├── package.json                                  # npm package configuration
