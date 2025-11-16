@@ -33,6 +33,9 @@ type VTerminal struct {
 	// Mouse selection support
 	selectionStart *position
 	selectionEnd   *position
+	// Terminal modes
+	autoWrap      bool // Auto-wrap mode (DECAWM)
+	cursorVisible bool // Cursor visibility
 }
 
 type position struct {
@@ -72,6 +75,8 @@ func NewVTerminal(width, height int) *VTerminal {
 			fgColor: -1,
 			bgColor: -1,
 		},
+		autoWrap:      true, // Enable auto-wrap by default
+		cursorVisible: true, // Cursor visible by default
 	}
 	vt.attrs = vt.defaultAttrs
 	vt.initBuffer()
@@ -223,8 +228,13 @@ func (vt *VTerminal) putChar(r rune) {
 		vt.cursorY = vt.height - 1
 	}
 	if vt.cursorX >= vt.width {
-		vt.newLine()
-		vt.cursorX = 0
+		if vt.autoWrap {
+			vt.newLine()
+			vt.cursorX = 0
+		} else {
+			// Without auto-wrap, stay at the last column
+			vt.cursorX = vt.width - 1
+		}
 	}
 
 	if vt.cursorY < len(vt.buffer) && vt.cursorX < len(vt.buffer[vt.cursorY]) {
@@ -534,14 +544,35 @@ func (vt *VTerminal) handleCSI() {
 	case 'h': // Set mode
 		// Handle various DEC private modes with '?' prefix
 		if params != "" && params[0] == '?' {
-			// Private mode set - just ignore for now
-			// Common ones: ?25 = cursor visible, ?1049 = alternate screen buffer
+			// DEC private modes - remove the '?' and parse
+			modeParams := params[1:]
+			modeArgs := parseCSIParams(modeParams)
+			for _, arg := range modeArgs {
+				switch arg {
+				case 7: // DECAWM - Auto-wrap mode
+					vt.autoWrap = true
+				case 25: // DECTCEM - Cursor visible
+					vt.cursorVisible = true
+					// Other modes like ?1 (application cursor keys), ?1049 (alt screen)
+					// are not fully implemented but won't cause errors
+				}
+			}
 		}
 
 	case 'l': // Reset mode
 		// Handle various DEC private modes with '?' prefix
 		if params != "" && params[0] == '?' {
-			// Private mode reset - just ignore for now
+			// DEC private modes - remove the '?' and parse
+			modeParams := params[1:]
+			modeArgs := parseCSIParams(modeParams)
+			for _, arg := range modeArgs {
+				switch arg {
+				case 7: // DECAWM - Auto-wrap mode
+					vt.autoWrap = false
+				case 25: // DECTCEM - Cursor visible
+					vt.cursorVisible = false
+				}
+			}
 		}
 
 	case 'm': // SGR - Select Graphic Rendition
