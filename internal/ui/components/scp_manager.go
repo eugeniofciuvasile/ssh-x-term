@@ -110,8 +110,10 @@ type SCPManager struct {
 	operationInProgress bool
 	inputMode           InputMode
 	inputBuffer         string
-	searchMatches       []int // Indices of matching files in current panel
-	searchSelectedIdx   int   // Current position in search results
+	searchMatches       []int          // Indices of matching files in current panel
+	searchSelectedIdx   int            // Current position in search results
+	recursiveResults    []ssh.FileInfo // Files found in recursive search
+	originalFiles       []ssh.FileInfo // Original file list before search
 }
 
 // NewSCPManager creates a new SCP file manager component
@@ -315,12 +317,7 @@ func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
 		file := panel.Files[i]
 		var line string
 
-		icon := "  "
-		if file.IsDir {
-			icon = "📁"
-		} else {
-			icon = "📄"
-		}
+		icon := s.getFileIcon(file)
 
 		fileName := file.Name
 		if len(fileName) > 30 {
@@ -342,6 +339,95 @@ func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// getFileIcon returns an appropriate icon for the file based on its type
+func (s *SCPManager) getFileIcon(file ssh.FileInfo) string {
+	// Hidden files (starting with .)
+	if strings.HasPrefix(file.Name, ".") && file.Name != ".." {
+		if file.IsDir {
+			return "📂" // Hidden directory
+		}
+		return "🔒" // Hidden file
+	}
+
+	// Directories
+	if file.IsDir {
+		return "📁"
+	}
+
+	// Check if executable (has execute permission)
+	if strings.Contains(file.Mode, "x") {
+		return "⚙️"
+	}
+
+	// File extensions
+	ext := strings.ToLower(filepath.Ext(file.Name))
+	switch ext {
+	// Programming languages
+	case ".go":
+		return "🐹"
+	case ".py":
+		return "🐍"
+	case ".js", ".ts", ".jsx", ".tsx":
+		return "📜"
+	case ".java":
+		return "☕"
+	case ".c", ".cpp", ".cc", ".h", ".hpp":
+		return "🔧"
+	case ".rs":
+		return "🦀"
+	case ".rb":
+		return "💎"
+	case ".php":
+		return "🐘"
+	case ".sh", ".bash", ".zsh":
+		return "🐚"
+
+	// Web files
+	case ".html", ".htm":
+		return "🌐"
+	case ".css", ".scss", ".sass":
+		return "🎨"
+	case ".json", ".xml", ".yaml", ".yml", ".toml":
+		return "⚙️"
+
+	// Documents
+	case ".md", ".markdown":
+		return "📝"
+	case ".txt", ".log":
+		return "📄"
+	case ".pdf":
+		return "📕"
+	case ".doc", ".docx":
+		return "📘"
+
+	// Images
+	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".ico":
+		return "🖼️"
+
+	// Archives
+	case ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar":
+		return "📦"
+
+	// Media
+	case ".mp3", ".wav", ".flac", ".ogg":
+		return "🎵"
+	case ".mp4", ".avi", ".mkv", ".mov":
+		return "🎬"
+
+	// Data/Database
+	case ".db", ".sqlite", ".sql":
+		return "💾"
+
+	// Config files
+	case ".conf", ".config", ".ini", ".env":
+		return "⚙️"
+
+	// Default
+	default:
+		return "📄"
+	}
 }
 
 // handleKey handles keyboard input
@@ -440,13 +526,17 @@ func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
+	case "d", "x":
+		// Delete file
+		return s, s.deleteFile()
+
 	case "/":
-		// Search mode
+		// Search mode - now recursive
 		s.inputMode = ModeSearch
 		s.inputBuffer = ""
 		s.searchMatches = []int{}
 		s.searchSelectedIdx = 0
-		s.status = "Search: "
+		s.status = "Recursive search: "
 		return s, nil
 
 	case "ctrl+l":
@@ -479,10 +569,18 @@ func (s *SCPManager) getActivePanel() *Panel {
 func (s *SCPManager) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		// Cancel input mode
+		// Cancel input mode and restore original files if in search mode
+		if s.inputMode == ModeSearch && len(s.originalFiles) > 0 {
+			panel := s.getActivePanel()
+			panel.Files = s.originalFiles
+			s.originalFiles = nil
+			panel.SelectedIdx = 0
+			panel.ScrollOffset = 0
+		}
 		s.inputMode = ModeNormal
 		s.inputBuffer = ""
 		s.searchMatches = []int{}
+		s.recursiveResults = []ssh.FileInfo{}
 		s.status = "Cancelled"
 		return s, nil
 
@@ -548,20 +646,93 @@ func (s *SCPManager) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// updateSearchResults performs fuzzy search on current panel files
+// updateSearchResults performs recursive fuzzy search from current directory
 func (s *SCPManager) updateSearchResults() {
 	panel := s.getActivePanel()
+	s.recursiveResults = []ssh.FileInfo{}
 	s.searchMatches = []int{}
 	s.searchSelectedIdx = 0
 
 	if s.inputBuffer == "" {
+		// Restore original files if search is cleared
+		if len(s.originalFiles) > 0 {
+			panel.Files = s.originalFiles
+			s.originalFiles = nil
+		}
 		return
 	}
 
+	// Store original files if not already stored
+	if len(s.originalFiles) == 0 {
+		s.originalFiles = make([]ssh.FileInfo, len(panel.Files))
+		copy(s.originalFiles, panel.Files)
+	}
+
 	query := strings.ToLower(s.inputBuffer)
-	for i, file := range panel.Files {
-		if s.fuzzyMatch(query, strings.ToLower(file.Name)) {
+
+	// Start recursive search
+	s.recursiveSearchDir(panel.Path, query, "")
+
+	// Update panel with search results
+	if len(s.recursiveResults) > 0 {
+		panel.Files = s.recursiveResults
+		panel.SelectedIdx = 0
+		panel.ScrollOffset = 0
+		// All results are matches, so searchMatches contains all indices
+		for i := range s.recursiveResults {
 			s.searchMatches = append(s.searchMatches, i)
+		}
+	} else {
+		// No results, show empty
+		panel.Files = []ssh.FileInfo{}
+	}
+}
+
+// recursiveSearchDir recursively searches for files matching the query
+func (s *SCPManager) recursiveSearchDir(basePath, query, relativePath string) {
+	var files []ssh.FileInfo
+	var err error
+
+	currentPath := filepath.Join(basePath, relativePath)
+
+	if s.activePanel == 0 {
+		// Local search
+		files, err = ssh.ListLocalFiles(currentPath)
+	} else {
+		// Remote search
+		if s.sftpClient == nil {
+			return
+		}
+		files, err = s.sftpClient.ListFiles(currentPath)
+	}
+
+	if err != nil {
+		return
+	}
+
+	for _, file := range files {
+		// Skip . and ..
+		if file.Name == "." || file.Name == ".." {
+			continue
+		}
+
+		fullRelPath := filepath.Join(relativePath, file.Name)
+
+		// Check if filename matches
+		if s.fuzzyMatch(query, strings.ToLower(file.Name)) {
+			// Create a new FileInfo with relative path in name for display
+			displayFile := ssh.FileInfo{
+				Name:  fullRelPath,
+				Size:  file.Size,
+				IsDir: file.IsDir,
+				Mode:  file.Mode,
+			}
+			s.recursiveResults = append(s.recursiveResults, displayFile)
+		}
+
+		// Recurse into directories (limit depth to prevent infinite loops)
+		if file.IsDir && len(strings.Split(fullRelPath, string(filepath.Separator))) < 10 {
+			s.recursiveSearchDir(basePath, query, fullRelPath)
 		}
 	}
 }
@@ -581,30 +752,24 @@ func (s *SCPManager) fuzzyMatch(query, target string) bool {
 	return qi == len(query)
 }
 
-// executeSearch jumps to the selected search result
+// executeSearch finalizes the search and keeps filtered results
 func (s *SCPManager) executeSearch() (tea.Model, tea.Cmd) {
 	panel := s.getActivePanel()
 
-	if len(s.searchMatches) > 0 {
-		// Jump to selected match
-		panel.SelectedIdx = s.searchMatches[s.searchSelectedIdx]
-
-		// Adjust scroll to make selected item visible
-		maxVisible := s.height - 8
-		if panel.SelectedIdx < panel.ScrollOffset {
-			panel.ScrollOffset = panel.SelectedIdx
-		} else if panel.SelectedIdx >= panel.ScrollOffset+maxVisible {
-			panel.ScrollOffset = panel.SelectedIdx - maxVisible + 1
-		}
-
-		s.status = fmt.Sprintf("Jumped to: %s", panel.Files[panel.SelectedIdx].Name)
+	if len(s.recursiveResults) > 0 {
+		// Keep the search results displayed
+		s.status = fmt.Sprintf("Found %d matches (ESC to restore)", len(s.recursiveResults))
 	} else {
 		s.status = "No matches found"
+		// Restore original files
+		if len(s.originalFiles) > 0 {
+			panel.Files = s.originalFiles
+			s.originalFiles = nil
+		}
 	}
 
 	s.inputMode = ModeNormal
 	s.inputBuffer = ""
-	s.searchMatches = []int{}
 	return s, nil
 }
 
@@ -859,6 +1024,39 @@ func (s *SCPManager) uploadFile() tea.Cmd {
 			return SCPOperationMsg{Operation: "Upload", Success: false, Err: err}
 		}
 		return SCPOperationMsg{Operation: "Upload", Success: true}
+	}
+}
+
+func (s *SCPManager) deleteFile() tea.Cmd {
+	panel := s.getActivePanel()
+	if panel.SelectedIdx < 0 || panel.SelectedIdx >= len(panel.Files) {
+		return nil
+	}
+
+	file := panel.Files[panel.SelectedIdx]
+	filePath := filepath.Join(panel.Path, file.Name)
+
+	s.operationInProgress = true
+	s.status = fmt.Sprintf("Deleting %s...", file.Name)
+
+	return func() tea.Msg {
+		var err error
+
+		if s.activePanel == 0 {
+			// Local file
+			err = ssh.DeleteLocalFile(filePath, file.IsDir)
+		} else {
+			// Remote file
+			if s.sftpClient == nil {
+				return SCPOperationMsg{Operation: "Delete", Success: false, Err: fmt.Errorf("not connected")}
+			}
+			err = s.sftpClient.DeleteFile(filePath, file.IsDir)
+		}
+
+		if err != nil {
+			return SCPOperationMsg{Operation: "Delete", Success: false, Err: err}
+		}
+		return SCPOperationMsg{Operation: "Delete", Success: true}
 	}
 }
 

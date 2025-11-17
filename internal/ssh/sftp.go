@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
@@ -279,4 +280,67 @@ func (s *SFTPClient) CreateDirAndFile(dir, filePath string) error {
 	defer file.Close()
 
 	return nil
+}
+
+// DeleteLocalFile deletes a local file or directory
+func DeleteLocalFile(path string, isDir bool) error {
+	if isDir {
+		err := os.RemoveAll(path)
+		if err != nil {
+			return fmt.Errorf("failed to delete directory: %w", err)
+		}
+	} else {
+		err := os.Remove(path)
+		if err != nil {
+			return fmt.Errorf("failed to delete file: %w", err)
+		}
+	}
+	return nil
+}
+
+// DeleteFile deletes a remote file or directory
+func (s *SFTPClient) DeleteFile(path string, isDir bool) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("SFTP client not connected")
+	}
+
+	if isDir {
+		// Remove directory recursively
+		err := s.removeDir(path)
+		if err != nil {
+			return fmt.Errorf("failed to delete directory: %w", err)
+		}
+	} else {
+		err := s.sftpClient.Remove(path)
+		if err != nil {
+			return fmt.Errorf("failed to delete file: %w", err)
+		}
+	}
+	return nil
+}
+
+// removeDir recursively removes a directory
+func (s *SFTPClient) removeDir(path string) error {
+	// List directory contents
+	entries, err := s.sftpClient.ReadDir(path)
+	if err != nil {
+		return err
+	}
+
+	// Remove all contents first
+	for _, entry := range entries {
+		entryPath := filepath.Join(path, entry.Name())
+		if entry.IsDir() {
+			if err := s.removeDir(entryPath); err != nil {
+				return err
+			}
+		} else {
+			if err := s.sftpClient.Remove(entryPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Remove the directory itself
+	return s.sftpClient.RemoveDirectory(path)
 }
