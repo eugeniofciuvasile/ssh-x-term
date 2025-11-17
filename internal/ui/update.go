@@ -248,7 +248,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.scpManager = components.NewSCPManager(*selectedItem)
 						m.state = StateSCPFileManager
 						m.connectionList.Reset()
-						
+
 						// Send initial size to SCP manager
 						initCmd := m.scpManager.Init()
 						contentHeight := max(m.height-headerHeight-footerHeight, 12)

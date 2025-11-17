@@ -83,20 +83,20 @@ type (
 
 // SCPManager represents the SCP file manager component
 type SCPManager struct {
-	connection      config.SSHConnection
-	sftpClient      *ssh.SFTPClient
-	localPanel      Panel
-	remotePanel     Panel
-	activePanel     int // 0 = local, 1 = remote
-	width           int
-	height          int
-	status          string
-	error           string
-	loading         bool
-	finished        bool
-	lastEscTime     time.Time
-	escPressCount   int
-	escTimeoutSecs  float64
+	connection          config.SSHConnection
+	sftpClient          *ssh.SFTPClient
+	localPanel          Panel
+	remotePanel         Panel
+	activePanel         int // 0 = local, 1 = remote
+	width               int
+	height              int
+	status              string
+	error               string
+	loading             bool
+	finished            bool
+	lastEscTime         time.Time
+	escPressCount       int
+	escTimeoutSecs      float64
 	operationInProgress bool
 }
 
@@ -246,7 +246,7 @@ func (s *SCPManager) renderPanels() string {
 	// Render local panel
 	localTitle := "Local: " + s.localPanel.Path
 	localContent := s.renderPanelContent(&s.localPanel, panelHeight)
-	
+
 	var localPanel string
 	if s.activePanel == 0 {
 		localPanel = scpActivePanelStyle.Width(panelWidth).Render(
@@ -261,7 +261,7 @@ func (s *SCPManager) renderPanels() string {
 	// Render remote panel
 	remoteTitle := "Remote: " + s.remotePanel.Path
 	remoteContent := s.renderPanelContent(&s.remotePanel, panelHeight)
-	
+
 	var remotePanel string
 	if s.activePanel == 1 {
 		remotePanel = scpActivePanelStyle.Width(panelWidth).Render(
