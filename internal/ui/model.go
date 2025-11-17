@@ -65,6 +65,7 @@ const (
 	StateAddConnection
 	StateEditConnection
 	StateSSHTerminal
+	StateSCPFileManager
 	StateBitwardenLogin
 	StateBitwardenUnlock
 	StateOrganizationSelect
@@ -88,6 +89,7 @@ type Model struct {
 	connectionList            *components.ConnectionList
 	connectionForm            *components.ConnectionForm
 	terminal                  *components.TerminalComponent
+	scpManager                *components.SCPManager
 	bitwardenForm             *components.BitwardenConfigForm
 	errorMessage              string
 	bitwardenLoginForm        *components.BitwardenLoginForm
@@ -321,6 +323,8 @@ func (m *Model) getActiveComponent() tea.Model {
 		return m.connectionForm
 	case StateSSHTerminal:
 		return m.terminal
+	case StateSCPFileManager:
+		return m.scpManager
 	default:
 		return nil
 	}
@@ -477,6 +481,14 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 		m.terminal = model.(*components.TerminalComponent)
 		if m.terminal.IsFinished() {
 			m.terminal = nil
+			m.state = StateConnectionList
+			m.connectionList.Reset()
+			return nil
+		}
+	case StateSCPFileManager:
+		m.scpManager = model.(*components.SCPManager)
+		if m.scpManager.IsFinished() {
+			m.scpManager = nil
 			m.state = StateConnectionList
 			m.connectionList.Reset()
 			return nil

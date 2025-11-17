@@ -74,8 +74,8 @@ func (m *Model) View() string {
 		}()
 
 		// Don't render component details while loading for a cleaner look
-		// except for terminal which should always be shown
-		if !m.loading || m.state == StateSSHTerminal {
+		// except for terminal and SCP manager which should always be shown
+		if !m.loading || m.state == StateSSHTerminal || m.state == StateSCPFileManager {
 			contentBuilder.WriteString(activeComponent.View())
 		}
 	} else if !m.loading {
@@ -84,10 +84,10 @@ func (m *Model) View() string {
 
 	content := contentBuilder.String()
 
-	// For terminal state, ensure content fills the available space
-	// The terminal component already includes its own header and footer
-	if m.state == StateSSHTerminal {
-		// Terminal content should already fill the space, just ensure proper height
+	// For terminal and SCP manager states, ensure content fills the available space
+	// These components already include their own headers
+	if m.state == StateSSHTerminal || m.state == StateSCPFileManager {
+		// Content should already fill the space, just ensure proper height
 		content = lipgloss.NewStyle().
 			Height(contentHeight).
 			Width(m.width).
@@ -104,13 +104,13 @@ func (m *Model) View() string {
 
 // getHelpText returns context-appropriate help text
 func (m *Model) getHelpText() string {
-	if m.loading && m.state != StateSSHTerminal {
+	if m.loading && m.state != StateSSHTerminal && m.state != StateSCPFileManager {
 		return "Please wait... (ctrl+c to cancel)"
 	}
 
 	switch m.state {
 	case StateConnectionList:
-		return "a: add | e: edit | d: delete | o: toggle new terminal | enter: connect | ctrl+c: quit"
+		return "a: add | e: edit | d: delete | s: scp | o: toggle new terminal | enter: connect | ctrl+c: quit"
 	case StateSSHTerminal:
 		// Get detailed help text from terminal component
 		if m.terminal != nil {
@@ -126,6 +126,8 @@ func (m *Model) getHelpText() string {
 			return "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll Vertically | Tab: Complete Command | Mouse: Copy Text"
 		}
 		return "esc: disconnect"
+	case StateSCPFileManager:
+		return "↑/↓: navigate | enter: open | backspace: parent | tab: switch | g: get | u: upload | d: delete | n: create | r: rename | c: cd | /: search | esc: exit"
 	case StateSelectStorage:
 		return "↑/↓: navigate | enter: select | ctrl+c: quit"
 	case StateBitwardenConfig:
