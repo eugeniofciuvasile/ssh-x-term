@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbletea v1.3.5
+	github.com/pkg/sftp v1.13.10
 	golang.org/x/crypto v0.41.0
 )
 
@@ -13,7 +14,6 @@ require (
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/pkg/sftp v1.13.10 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 )
 
