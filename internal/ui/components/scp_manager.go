@@ -435,9 +435,9 @@ func (s *SCPManager) getFileIcon(file ssh.FileInfo) string {
 
 // handleKey handles keyboard input
 func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Handle input modes first
+	// Handle input modes first - route ALL input modes to handleInputMode
 	switch s.inputMode {
-	case ModeSearch, ModeCreateFile, ModeRename:
+	case ModeSearch, ModeCreateFile, ModeRename, ModeChangeDir, ModeConfirmDelete:
 		return s.handleInputMode(msg)
 	}
 
