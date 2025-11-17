@@ -89,6 +89,8 @@ const (
 	ModeSearch
 	ModeCreateFile
 	ModeRename
+	ModeChangeDir
+	ModeConfirmDelete
 )
 
 // SCPManager represents the SCP file manager component
@@ -114,6 +116,7 @@ type SCPManager struct {
 	searchSelectedIdx   int            // Current position in search results
 	recursiveResults    []ssh.FileInfo // Files found in recursive search
 	originalFiles       []ssh.FileInfo // Original file list before search
+	deleteTarget        *ssh.FileInfo  // File to delete (pending confirmation)
 }
 
 // NewSCPManager creates a new SCP file manager component
@@ -527,8 +530,26 @@ func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case "d", "x":
-		// Delete file
-		return s, s.deleteFile()
+		// Delete file - show confirmation first
+		panel := s.getActivePanel()
+		if panel.SelectedIdx >= 0 && panel.SelectedIdx < len(panel.Files) {
+			file := panel.Files[panel.SelectedIdx]
+			s.deleteTarget = &file
+			s.inputMode = ModeConfirmDelete
+			typeStr := "file"
+			if file.IsDir {
+				typeStr = "directory"
+			}
+			s.status = fmt.Sprintf("Delete %s '%s'? (y/n): ", typeStr, file.Name)
+		}
+		return s, nil
+
+	case "c":
+		// Change directory - cd command
+		s.inputMode = ModeChangeDir
+		s.inputBuffer = ""
+		s.status = "Change directory (absolute path): "
+		return s, nil
 
 	case "/":
 		// Search mode - now recursive
@@ -567,6 +588,11 @@ func (s *SCPManager) getActivePanel() *Panel {
 
 // handleInputMode handles key input when in search, create, or rename mode
 func (s *SCPManager) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Special handling for delete confirmation
+	if s.inputMode == ModeConfirmDelete {
+		return s.handleDeleteConfirmation(msg)
+	}
+
 	switch msg.String() {
 	case "esc":
 		// Cancel input mode and restore original files if in search mode
@@ -581,6 +607,7 @@ func (s *SCPManager) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		s.inputBuffer = ""
 		s.searchMatches = []int{}
 		s.recursiveResults = []ssh.FileInfo{}
+		s.deleteTarget = nil
 		s.status = "Cancelled"
 		return s, nil
 
@@ -593,6 +620,8 @@ func (s *SCPManager) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return s.executeCreateFile()
 		case ModeRename:
 			return s.executeRename()
+		case ModeChangeDir:
+			return s.executeChangeDir()
 		}
 		return s, nil
 
@@ -882,6 +911,89 @@ func (s *SCPManager) executeRename() (tea.Model, tea.Cmd) {
 	}
 }
 
+// handleDeleteConfirmation handles the delete confirmation prompt
+func (s *SCPManager) handleDeleteConfirmation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		// Confirm delete
+		if s.deleteTarget == nil {
+			s.inputMode = ModeNormal
+			s.status = "No file to delete"
+			return s, nil
+		}
+
+		file := *s.deleteTarget
+		panel := s.getActivePanel()
+		filePath := filepath.Join(panel.Path, file.Name)
+
+		s.operationInProgress = true
+		s.inputMode = ModeNormal
+		s.deleteTarget = nil
+		s.status = fmt.Sprintf("Deleting %s...", file.Name)
+
+		return s, func() tea.Msg {
+			var err error
+
+			if s.activePanel == 0 {
+				// Local file
+				err = ssh.DeleteLocalFile(filePath, file.IsDir)
+			} else {
+				// Remote file
+				if s.sftpClient == nil {
+					return SCPOperationMsg{Operation: "Delete", Success: false, Err: fmt.Errorf("not connected")}
+				}
+				err = s.sftpClient.DeleteFile(filePath, file.IsDir)
+			}
+
+			if err != nil {
+				return SCPOperationMsg{Operation: "Delete", Success: false, Err: err}
+			}
+			return SCPOperationMsg{Operation: "Delete", Success: true}
+		}
+
+	case "n", "N", "esc":
+		// Cancel delete
+		s.inputMode = ModeNormal
+		s.deleteTarget = nil
+		s.status = "Delete cancelled"
+		return s, nil
+
+	default:
+		// Ignore other keys
+		return s, nil
+	}
+}
+
+// executeChangeDir changes to the specified directory
+func (s *SCPManager) executeChangeDir() (tea.Model, tea.Cmd) {
+	if s.inputBuffer == "" {
+		s.status = "Path cannot be empty"
+		s.inputMode = ModeNormal
+		return s, nil
+	}
+
+	panel := s.getActivePanel()
+	newPath := s.inputBuffer
+
+	// Clean up the path
+	if !filepath.IsAbs(newPath) {
+		// If relative path, make it absolute from current directory
+		newPath = filepath.Join(panel.Path, newPath)
+	}
+
+	s.inputMode = ModeNormal
+	s.inputBuffer = ""
+	panel.Path = filepath.Clean(newPath)
+	panel.SelectedIdx = 0
+	panel.ScrollOffset = 0
+
+	// List files in the new directory
+	if s.activePanel == 0 {
+		return s, s.listLocalFiles()
+	}
+	return s, s.listRemoteFiles()
+}
+
 // createLocalDirAndFile creates directory structure and file locally
 func (s *SCPManager) createLocalDirAndFile(dir, filePath string) error {
 	return ssh.CreateLocalDirAndFile(dir, filePath)
@@ -1024,39 +1136,6 @@ func (s *SCPManager) uploadFile() tea.Cmd {
 			return SCPOperationMsg{Operation: "Upload", Success: false, Err: err}
 		}
 		return SCPOperationMsg{Operation: "Upload", Success: true}
-	}
-}
-
-func (s *SCPManager) deleteFile() tea.Cmd {
-	panel := s.getActivePanel()
-	if panel.SelectedIdx < 0 || panel.SelectedIdx >= len(panel.Files) {
-		return nil
-	}
-
-	file := panel.Files[panel.SelectedIdx]
-	filePath := filepath.Join(panel.Path, file.Name)
-
-	s.operationInProgress = true
-	s.status = fmt.Sprintf("Deleting %s...", file.Name)
-
-	return func() tea.Msg {
-		var err error
-
-		if s.activePanel == 0 {
-			// Local file
-			err = ssh.DeleteLocalFile(filePath, file.IsDir)
-		} else {
-			// Remote file
-			if s.sftpClient == nil {
-				return SCPOperationMsg{Operation: "Delete", Success: false, Err: fmt.Errorf("not connected")}
-			}
-			err = s.sftpClient.DeleteFile(filePath, file.IsDir)
-		}
-
-		if err != nil {
-			return SCPOperationMsg{Operation: "Delete", Success: false, Err: err}
-		}
-		return SCPOperationMsg{Operation: "Delete", Success: true}
 	}
 }
 
