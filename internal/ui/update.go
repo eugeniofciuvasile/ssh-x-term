@@ -161,10 +161,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if activeComponent := m.getActiveComponent(); activeComponent != nil {
-			// For terminal state, we need to calculate the actual content area
-			// since the terminal needs to know the exact dimensions it has to work with
-			if m.state == StateSSHTerminal {
-				// The terminal gets the full content area between header and footer
+			// For terminal and SCP manager states, we need to calculate the actual content area
+			// since they need to know the exact dimensions they have to work with
+			if m.state == StateSSHTerminal || m.state == StateSCPFileManager {
+				// The component gets the full content area between header and footer
 				contentHeight := max(m.height-headerHeight-footerHeight,
 					// Minimum viable height
 					12)
@@ -241,6 +241,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							deleteConnectionCmd(m.storageBackend, selectedItem.ID),
 							m.spinner.Tick,
 						)
+					}
+				case msg.String() == "s":
+					// Open SCP file manager
+					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil {
+						m.scpManager = components.NewSCPManager(*selectedItem)
+						m.state = StateSCPFileManager
+						m.connectionList.Reset()
+						
+						// Send initial size to SCP manager
+						initCmd := m.scpManager.Init()
+						contentHeight := max(m.height-headerHeight-footerHeight, 12)
+						sizeMsg := tea.WindowSizeMsg{
+							Width:  m.width,
+							Height: contentHeight,
+						}
+						_, sizeCmd := m.scpManager.Update(sizeMsg)
+						return m, tea.Batch(initCmd, sizeCmd)
 					}
 				case msg.String() == "o":
 					if m.connectionList != nil {
