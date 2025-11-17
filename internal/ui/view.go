@@ -127,7 +127,7 @@ func (m *Model) getHelpText() string {
 		}
 		return "esc: disconnect"
 	case StateSCPFileManager:
-		return "↑/↓: navigate | enter: open dir | backspace: parent dir | tab: switch panel | g: download | u: upload | esc: exit"
+		return "↑/↓: navigate | enter: open dir | backspace: parent | tab: switch | g: download | u: upload | n: create | r: rename | /: search | esc: exit"
 	case StateSelectStorage:
 		return "↑/↓: navigate | enter: select | ctrl+c: quit"
 	case StateBitwardenConfig:

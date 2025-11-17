@@ -81,6 +81,16 @@ type (
 	}
 )
 
+// InputMode represents the current input mode
+type InputMode int
+
+const (
+	ModeNormal InputMode = iota
+	ModeSearch
+	ModeCreateFile
+	ModeRename
+)
+
 // SCPManager represents the SCP file manager component
 type SCPManager struct {
 	connection          config.SSHConnection
@@ -98,6 +108,10 @@ type SCPManager struct {
 	escPressCount       int
 	escTimeoutSecs      float64
 	operationInProgress bool
+	inputMode           InputMode
+	inputBuffer         string
+	searchMatches       []int // Indices of matching files in current panel
+	searchSelectedIdx   int   // Current position in search results
 }
 
 // NewSCPManager creates a new SCP file manager component
@@ -116,6 +130,9 @@ func NewSCPManager(conn config.SSHConnection) *SCPManager {
 		status:         "Connecting...",
 		loading:        true,
 		escTimeoutSecs: 2.0,
+		inputMode:      ModeNormal,
+		inputBuffer:    "",
+		searchMatches:  []int{},
 	}
 }
 
@@ -221,11 +238,18 @@ func (s *SCPManager) View() string {
 	// Build content with split panels
 	content := s.renderPanels()
 
-	// Build status/footer
+	// Build status/footer with input prompt if in input mode
 	var statusText string
 	if s.error != "" {
 		statusText = scpErrorStyle.Render(s.error)
 		s.error = "" // Clear error after displaying
+	} else if s.inputMode != ModeNormal {
+		// Show input prompt
+		prompt := s.status + s.inputBuffer
+		if s.inputMode == ModeSearch && len(s.searchMatches) > 0 {
+			prompt += fmt.Sprintf(" [%d/%d matches]", s.searchSelectedIdx+1, len(s.searchMatches))
+		}
+		statusText = scpStatusStyle.Width(s.width).Render(prompt)
 	} else {
 		statusText = scpStatusStyle.Width(s.width).Render(s.status)
 	}
@@ -322,6 +346,13 @@ func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
 
 // handleKey handles keyboard input
 func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle input modes first
+	switch s.inputMode {
+	case ModeSearch, ModeCreateFile, ModeRename:
+		return s.handleInputMode(msg)
+	}
+
+	// Normal mode key handling
 	switch msg.String() {
 	case "esc":
 		// Double ESC to exit
@@ -393,13 +424,29 @@ func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case "n":
-		// Create new file (not implemented yet)
-		s.status = "Create file: not yet implemented"
+		// Create new file
+		s.inputMode = ModeCreateFile
+		s.inputBuffer = ""
+		s.status = "Create file (use / for directories): "
 		return s, nil
 
 	case "r":
-		// Rename file (not implemented yet)
-		s.status = "Rename file: not yet implemented"
+		// Rename file
+		panel := s.getActivePanel()
+		if panel.SelectedIdx >= 0 && panel.SelectedIdx < len(panel.Files) {
+			s.inputMode = ModeRename
+			s.inputBuffer = panel.Files[panel.SelectedIdx].Name
+			s.status = "Rename to: "
+		}
+		return s, nil
+
+	case "/":
+		// Search mode
+		s.inputMode = ModeSearch
+		s.inputBuffer = ""
+		s.searchMatches = []int{}
+		s.searchSelectedIdx = 0
+		s.status = "Search: "
 		return s, nil
 
 	case "ctrl+l":
@@ -426,6 +473,261 @@ func (s *SCPManager) getActivePanel() *Panel {
 		return &s.localPanel
 	}
 	return &s.remotePanel
+}
+
+// handleInputMode handles key input when in search, create, or rename mode
+func (s *SCPManager) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		// Cancel input mode
+		s.inputMode = ModeNormal
+		s.inputBuffer = ""
+		s.searchMatches = []int{}
+		s.status = "Cancelled"
+		return s, nil
+
+	case "enter":
+		// Execute the action based on mode
+		switch s.inputMode {
+		case ModeSearch:
+			return s.executeSearch()
+		case ModeCreateFile:
+			return s.executeCreateFile()
+		case ModeRename:
+			return s.executeRename()
+		}
+		return s, nil
+
+	case "backspace":
+		// Remove last character
+		if len(s.inputBuffer) > 0 {
+			s.inputBuffer = s.inputBuffer[:len(s.inputBuffer)-1]
+		}
+		// Update search results in real-time
+		if s.inputMode == ModeSearch {
+			s.updateSearchResults()
+		}
+		return s, nil
+
+	case "ctrl+u":
+		// Clear input buffer
+		s.inputBuffer = ""
+		if s.inputMode == ModeSearch {
+			s.searchMatches = []int{}
+		}
+		return s, nil
+
+	case "up", "ctrl+p":
+		// Navigate search results
+		if s.inputMode == ModeSearch && len(s.searchMatches) > 0 {
+			if s.searchSelectedIdx > 0 {
+				s.searchSelectedIdx--
+			}
+		}
+		return s, nil
+
+	case "down", "ctrl+n":
+		// Navigate search results
+		if s.inputMode == ModeSearch && len(s.searchMatches) > 0 {
+			if s.searchSelectedIdx < len(s.searchMatches)-1 {
+				s.searchSelectedIdx++
+			}
+		}
+		return s, nil
+
+	default:
+		// Add character to input buffer if it's a printable character
+		if len(msg.String()) == 1 {
+			s.inputBuffer += msg.String()
+			// Update search results in real-time
+			if s.inputMode == ModeSearch {
+				s.updateSearchResults()
+			}
+		}
+		return s, nil
+	}
+}
+
+// updateSearchResults performs fuzzy search on current panel files
+func (s *SCPManager) updateSearchResults() {
+	panel := s.getActivePanel()
+	s.searchMatches = []int{}
+	s.searchSelectedIdx = 0
+
+	if s.inputBuffer == "" {
+		return
+	}
+
+	query := strings.ToLower(s.inputBuffer)
+	for i, file := range panel.Files {
+		if s.fuzzyMatch(query, strings.ToLower(file.Name)) {
+			s.searchMatches = append(s.searchMatches, i)
+		}
+	}
+}
+
+// fuzzyMatch performs a simple fuzzy match
+func (s *SCPManager) fuzzyMatch(query, target string) bool {
+	if query == "" {
+		return true
+	}
+
+	qi := 0
+	for _, c := range target {
+		if qi < len(query) && rune(query[qi]) == c {
+			qi++
+		}
+	}
+	return qi == len(query)
+}
+
+// executeSearch jumps to the selected search result
+func (s *SCPManager) executeSearch() (tea.Model, tea.Cmd) {
+	panel := s.getActivePanel()
+
+	if len(s.searchMatches) > 0 {
+		// Jump to selected match
+		panel.SelectedIdx = s.searchMatches[s.searchSelectedIdx]
+
+		// Adjust scroll to make selected item visible
+		maxVisible := s.height - 8
+		if panel.SelectedIdx < panel.ScrollOffset {
+			panel.ScrollOffset = panel.SelectedIdx
+		} else if panel.SelectedIdx >= panel.ScrollOffset+maxVisible {
+			panel.ScrollOffset = panel.SelectedIdx - maxVisible + 1
+		}
+
+		s.status = fmt.Sprintf("Jumped to: %s", panel.Files[panel.SelectedIdx].Name)
+	} else {
+		s.status = "No matches found"
+	}
+
+	s.inputMode = ModeNormal
+	s.inputBuffer = ""
+	s.searchMatches = []int{}
+	return s, nil
+}
+
+// executeCreateFile creates a new file or directory structure
+func (s *SCPManager) executeCreateFile() (tea.Model, tea.Cmd) {
+	if s.inputBuffer == "" {
+		s.status = "File name cannot be empty"
+		s.inputMode = ModeNormal
+		return s, nil
+	}
+
+	panel := s.getActivePanel()
+	fullPath := filepath.Join(panel.Path, s.inputBuffer)
+
+	// Check if path contains directory separators
+	if strings.Contains(s.inputBuffer, "/") {
+		// Create directory structure
+		dir := filepath.Dir(fullPath)
+
+		s.operationInProgress = true
+		s.inputMode = ModeNormal
+		s.status = "Creating file and directories..."
+
+		return s, func() tea.Msg {
+			var err error
+
+			if s.activePanel == 0 {
+				// Local file system
+				// Create directories if they don't exist
+				err = s.createLocalDirAndFile(dir, fullPath)
+			} else {
+				// Remote file system
+				err = s.createRemoteDirAndFile(dir, fullPath)
+			}
+
+			if err != nil {
+				return SCPOperationMsg{Operation: "Create file", Success: false, Err: err}
+			}
+			return SCPOperationMsg{Operation: "Create file", Success: true}
+		}
+	} else {
+		// Simple file creation
+		s.operationInProgress = true
+		s.inputMode = ModeNormal
+		s.status = "Creating file..."
+
+		return s, func() tea.Msg {
+			var err error
+
+			if s.activePanel == 0 {
+				// Local file
+				err = ssh.CreateLocalFile(fullPath)
+			} else {
+				// Remote file
+				if s.sftpClient == nil {
+					return SCPOperationMsg{Operation: "Create file", Success: false, Err: fmt.Errorf("not connected")}
+				}
+				err = s.sftpClient.CreateFile(fullPath)
+			}
+
+			if err != nil {
+				return SCPOperationMsg{Operation: "Create file", Success: false, Err: err}
+			}
+			return SCPOperationMsg{Operation: "Create file", Success: true}
+		}
+	}
+}
+
+// executeRename renames the selected file or directory
+func (s *SCPManager) executeRename() (tea.Model, tea.Cmd) {
+	if s.inputBuffer == "" {
+		s.status = "New name cannot be empty"
+		s.inputMode = ModeNormal
+		return s, nil
+	}
+
+	panel := s.getActivePanel()
+	if panel.SelectedIdx < 0 || panel.SelectedIdx >= len(panel.Files) {
+		s.status = "No file selected"
+		s.inputMode = ModeNormal
+		return s, nil
+	}
+
+	oldFile := panel.Files[panel.SelectedIdx]
+	oldPath := filepath.Join(panel.Path, oldFile.Name)
+	newPath := filepath.Join(panel.Path, s.inputBuffer)
+
+	s.operationInProgress = true
+	s.inputMode = ModeNormal
+	s.status = fmt.Sprintf("Renaming %s to %s...", oldFile.Name, s.inputBuffer)
+
+	return s, func() tea.Msg {
+		var err error
+
+		if s.activePanel == 0 {
+			// Local file
+			err = ssh.RenameLocalFile(oldPath, newPath)
+		} else {
+			// Remote file
+			if s.sftpClient == nil {
+				return SCPOperationMsg{Operation: "Rename", Success: false, Err: fmt.Errorf("not connected")}
+			}
+			err = s.sftpClient.RenameFile(oldPath, newPath)
+		}
+
+		if err != nil {
+			return SCPOperationMsg{Operation: "Rename", Success: false, Err: err}
+		}
+		return SCPOperationMsg{Operation: "Rename", Success: true}
+	}
+}
+
+// createLocalDirAndFile creates directory structure and file locally
+func (s *SCPManager) createLocalDirAndFile(dir, filePath string) error {
+	return ssh.CreateLocalDirAndFile(dir, filePath)
+}
+
+// createRemoteDirAndFile creates directory structure and file remotely
+func (s *SCPManager) createRemoteDirAndFile(dir, filePath string) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("not connected")
+	}
+	return s.sftpClient.CreateDirAndFile(dir, filePath)
 }
 
 func (s *SCPManager) connectSFTP() tea.Cmd {

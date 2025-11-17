@@ -223,3 +223,60 @@ func ListLocalFiles(path string) ([]FileInfo, error) {
 
 	return files, nil
 }
+
+// CreateLocalFile creates a new empty file locally
+func CreateLocalFile(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %w", err)
+	}
+	defer file.Close()
+	return nil
+}
+
+// RenameLocalFile renames a local file
+func RenameLocalFile(oldPath, newPath string) error {
+	err := os.Rename(oldPath, newPath)
+	if err != nil {
+		return fmt.Errorf("failed to rename local file: %w", err)
+	}
+	return nil
+}
+
+// CreateLocalDirAndFile creates directory structure and file locally
+func CreateLocalDirAndFile(dir, filePath string) error {
+	// Create directories if they don't exist
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	// Create the file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	return nil
+}
+
+// CreateDirAndFile creates directory structure and file remotely
+func (s *SFTPClient) CreateDirAndFile(dir, filePath string) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("SFTP client not connected")
+	}
+
+	// Create directories recursively
+	if err := s.sftpClient.MkdirAll(dir); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	// Create the file
+	file, err := s.sftpClient.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	return nil
+}
