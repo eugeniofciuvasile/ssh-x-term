@@ -4,38 +4,13 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-)
-
-var (
-	// Header style - always at top of screen
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("170")).
-			Background(lipgloss.Color("235")).
-			Padding(0, 2).
-			Width(0) // Will be set dynamically
-
-	// Footer style - always at bottom of screen
-	footerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Background(lipgloss.Color("235")).
-			Padding(0, 2).
-			Width(0) // Will be set dynamically
-
-	// Content style - fills the middle space
-	contentStyle = lipgloss.NewStyle().
-			Padding(1, 2)
-
-	errorStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("9")).
-			Padding(0, 2)
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
 )
 
 // View renders the UI model with full-screen layout
 func (m *Model) View() string {
 	// Calculate available space
-	// Header: 1 line for title
+	// Header: 1 line for title + state
 	// Footer: 1 line for help text
 	// Content: remaining space
 
@@ -44,13 +19,14 @@ func (m *Model) View() string {
 	contentHeight := max(m.height-headerHeightLines-footerHeightLines, 3)
 
 	// Set widths for header and footer to match terminal width
-	headerStyle = headerStyle.Width(m.width)
-	footerStyle = footerStyle.Width(m.width)
+	headerStyle := components.StyleHeader.Width(m.width)
+	footerStyle := components.StyleFooter.Width(m.width)
 
-	// Render header
-	headerText := "SSH-X-Term"
-	if m.loading {
-		headerText += " " + m.spinner.View() + " Loading..."
+	// Render header with app title and current state
+	headerText := "SSH X TERM"
+	stateText := m.getStateText()
+	if stateText != "" {
+		headerText += " | " + stateText
 	}
 	header := headerStyle.Render(headerText)
 
@@ -59,27 +35,28 @@ func (m *Model) View() string {
 
 	// Show error message if present
 	if m.errorMessage != "" {
-		contentBuilder.WriteString(errorStyle.Render(m.errorMessage))
+		contentBuilder.WriteString(components.StyleError.Padding(0, 2).Render(m.errorMessage))
 		contentBuilder.WriteString("\n")
 		// Clear error message after displaying it once
 		m.errorMessage = ""
 	}
 
-	// Show current component
-	if activeComponent := m.getActiveComponent(); activeComponent != nil {
+	// If loading, show centered spinner
+	if m.loading && m.state != StateSSHTerminal && m.state != StateSCPFileManager {
+		spinnerText := components.StyleSpinner.Render(m.spinner.View() + " Loading...")
+		content := components.CenterContent(spinnerText, m.width, contentHeight)
+		contentBuilder.WriteString(content)
+	} else if activeComponent := m.getActiveComponent(); activeComponent != nil {
+		// Show current component
 		defer func() {
 			if r := recover(); r != nil {
-				contentBuilder.WriteString(errorStyle.Render("Component error: invalid UI state"))
+				contentBuilder.WriteString(components.StyleError.Padding(0, 2).Render("Component error: invalid UI state"))
 			}
 		}()
 
-		// Don't render component details while loading for a cleaner look
-		// except for terminal and SCP manager which should always be shown
-		if !m.loading || m.state == StateSSHTerminal || m.state == StateSCPFileManager {
-			contentBuilder.WriteString(activeComponent.View())
-		}
-	} else if !m.loading {
-		contentBuilder.WriteString(contentStyle.Render("No active component"))
+		contentBuilder.WriteString(activeComponent.View())
+	} else {
+		contentBuilder.WriteString(components.StyleContainer.Render("No active component"))
 	}
 
 	content := contentBuilder.String()
@@ -144,5 +121,35 @@ func (m *Model) getHelpText() string {
 		return "tab: next field | ctrl+p: toggle auth | enter: save | esc: cancel"
 	default:
 		return "ctrl+c: quit"
+	}
+}
+
+// getStateText returns a human-readable string for the current state
+func (m *Model) getStateText() string {
+	switch m.state {
+	case StateSelectStorage:
+		return "Storage Selection"
+	case StateBitwardenConfig:
+		return "Bitwarden Setup"
+	case StateConnectionList:
+		return "Connections"
+	case StateAddConnection:
+		return "Add Connection"
+	case StateEditConnection:
+		return "Edit Connection"
+	case StateSSHTerminal:
+		return "SSH Terminal"
+	case StateSCPFileManager:
+		return "SCP File Manager"
+	case StateBitwardenLogin:
+		return "Bitwarden Login"
+	case StateBitwardenUnlock:
+		return "Bitwarden Unlock"
+	case StateOrganizationSelect:
+		return "Select Organization"
+	case StateCollectionSelect:
+		return "Select Collection"
+	default:
+		return ""
 	}
 }

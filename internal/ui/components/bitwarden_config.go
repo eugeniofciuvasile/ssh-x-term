@@ -6,22 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
-
-var (
-	bwFocusedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	bwBlurredStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	bwFocusedButton = bwFocusedStyle.Render("[ Submit ]")
-	bwBlurredButton = fmt.Sprintf("[ %s ]", bwBlurredStyle.Render("Submit"))
-
-	bwConfigFormStyle = lipgloss.NewStyle().
-				Padding(1, 2)
-
-	bwConfigTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("205")).
-				MarginBottom(1)
 )
 
 type BitwardenConfigForm struct {
@@ -41,17 +25,17 @@ func NewBitwardenConfigForm() *BitwardenConfigForm {
 	inputs[0].Placeholder = "Bitwarden Server URL"
 	inputs[0].Focus()
 	inputs[0].Width = 32
-	inputs[0].Prompt = "> "
-	inputs[0].PromptStyle = bwFocusedStyle
-	inputs[0].TextStyle = bwFocusedStyle
+	inputs[0].Prompt = RenderPrompt(true)
+	inputs[0].PromptStyle = StyleFocused
+	inputs[0].TextStyle = StyleFocused
 
 	// Email
 	inputs[1] = textinput.New()
 	inputs[1].Placeholder = "Email"
 	inputs[1].Width = 32
-	inputs[1].Prompt = "> "
-	inputs[1].PromptStyle = bwBlurredStyle
-	inputs[1].TextStyle = bwBlurredStyle
+	inputs[1].Prompt = RenderPrompt(false)
+	inputs[1].PromptStyle = StyleBlurred
+	inputs[1].TextStyle = StyleBlurred
 
 	return &BitwardenConfigForm{
 		inputs:     inputs,
@@ -98,12 +82,14 @@ func (f *BitwardenConfigForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	for i := 0; i < len(f.inputs); i++ {
 		if i == f.focusIndex {
 			f.inputs[i].Focus()
-			f.inputs[i].PromptStyle = bwFocusedStyle
-			f.inputs[i].TextStyle = bwFocusedStyle
+			f.inputs[i].PromptStyle = StyleFocused
+			f.inputs[i].TextStyle = StyleFocused
+			f.inputs[i].Prompt = RenderPrompt(true)
 		} else {
 			f.inputs[i].Blur()
-			f.inputs[i].PromptStyle = bwBlurredStyle
-			f.inputs[i].TextStyle = bwBlurredStyle
+			f.inputs[i].PromptStyle = StyleBlurred
+			f.inputs[i].TextStyle = StyleBlurred
+			f.inputs[i].Prompt = RenderPrompt(false)
 		}
 	}
 
@@ -119,24 +105,29 @@ func (f *BitwardenConfigForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (f *BitwardenConfigForm) View() string {
 	var b strings.Builder
 
-	b.WriteString(bwConfigTitleStyle.Render("Bitwarden Storage Setup"))
+	b.WriteString(StyleTitle.Render("Bitwarden Storage Setup"))
 	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Server URL:", f.inputs[0].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Email:", f.inputs[1].View()))
+	b.WriteString(StyleNormal.Render("Server URL:"))
+	b.WriteString("\n")
+	b.WriteString(f.inputs[0].View())
+	b.WriteString("\n\n")
+	b.WriteString(StyleNormal.Render("Email:"))
+	b.WriteString("\n")
+	b.WriteString(f.inputs[1].View())
+	b.WriteString("\n\n")
 
 	// Render submit button
-	button := bwBlurredButton
-	if f.focusIndex == len(f.inputs) {
-		button = bwFocusedButton
-	}
-	fmt.Fprintf(&b, "\n%s\n", button)
+	button := RenderButton("Submit", f.focusIndex == len(f.inputs))
+	b.WriteString("\n")
+	b.WriteString(button)
+	b.WriteString("\n")
 
 	// Show error message if any
 	if f.ErrorMsg != "" {
-		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.ErrorMsg))
+		fmt.Fprintf(&b, "\n%s\n", StyleError.Render(f.ErrorMsg))
 	}
 
-	return bwConfigFormStyle.Render(b.String())
+	return StyleContainer.Render(b.String())
 }
 
 func (f *BitwardenConfigForm) IsSubmitted() bool {

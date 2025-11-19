@@ -1,7 +1,6 @@
 package components
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -11,23 +10,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-)
-
-var (
-	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	blurredStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	noStyle      = lipgloss.NewStyle()
-
-	focusedButton = focusedStyle.Render("[ Submit ]")
-	blurredButton = fmt.Sprintf("[ %s ]", blurredStyle.Render("Submit"))
-
-	formStyle = lipgloss.NewStyle().
-			Padding(1, 2)
-
-	formTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205")).
-			MarginBottom(1)
 )
 
 // ConnectionForm represents a form for creating/editing connections
@@ -67,33 +49,33 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	inputs[0].Placeholder = "Connection Name"
 	inputs[0].Focus()
 	inputs[0].Width = 40
-	inputs[0].Prompt = focusedStyle.Render("> ")
-	inputs[0].PromptStyle = focusedStyle
-	inputs[0].TextStyle = focusedStyle
+	inputs[0].Prompt = RenderPrompt(true)
+	inputs[0].PromptStyle = StyleFocused
+	inputs[0].TextStyle = StyleFocused
 
 	// Host input
 	inputs[1] = textinput.New()
 	inputs[1].Placeholder = "Hostname or IP"
 	inputs[1].Width = 40
-	inputs[1].Prompt = "> "
+	inputs[1].Prompt = RenderPrompt(false)
 
 	// Port input
 	inputs[2] = textinput.New()
 	inputs[2].Placeholder = "Port (default: 22)"
 	inputs[2].Width = 40
-	inputs[2].Prompt = "> "
+	inputs[2].Prompt = RenderPrompt(false)
 
 	// Username input
 	inputs[3] = textinput.New()
 	inputs[3].Placeholder = "Username"
 	inputs[3].Width = 30
-	inputs[3].Prompt = "> "
+	inputs[3].Prompt = RenderPrompt(false)
 
 	// Password input
 	inputs[4] = textinput.New()
 	inputs[4].Placeholder = "Password"
 	inputs[4].Width = 40
-	inputs[4].Prompt = "> "
+	inputs[4].Prompt = RenderPrompt(false)
 	inputs[4].EchoMode = textinput.EchoPassword
 	inputs[4].EchoCharacter = '•'
 
@@ -101,13 +83,13 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	inputs[5] = textinput.New()
 	inputs[5].Placeholder = "Path to SSH key (example: ~/.ssh/id_rsa)"
 	inputs[5].Width = 60
-	inputs[5].Prompt = "> "
+	inputs[5].Prompt = RenderPrompt(false)
 
 	// ID input (hidden, used as identifier)
 	inputs[6] = textinput.New()
 	inputs[6].Placeholder = "ID (auto-generated)"
 	inputs[6].Width = 40
-	inputs[6].Prompt = "> "
+	inputs[6].Prompt = RenderPrompt(false)
 
 	// If editing, fill the fields
 	if editing {
@@ -178,12 +160,14 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for i := 0; i < len(m.inputs); i++ {
 				if i == m.focusIndex {
 					cmds = append(cmds, m.inputs[i].Focus())
-					m.inputs[i].PromptStyle = focusedStyle
-					m.inputs[i].TextStyle = focusedStyle
+					m.inputs[i].PromptStyle = StyleFocused
+					m.inputs[i].TextStyle = StyleFocused
+					m.inputs[i].Prompt = RenderPrompt(true)
 				} else {
 					m.inputs[i].Blur()
-					m.inputs[i].PromptStyle = noStyle
-					m.inputs[i].TextStyle = noStyle
+					m.inputs[i].PromptStyle = StyleNormal
+					m.inputs[i].TextStyle = StyleNormal
+					m.inputs[i].Prompt = RenderPrompt(false)
 				}
 			}
 
@@ -228,42 +212,72 @@ func (m *ConnectionForm) View() string {
 	if m.editing {
 		title = "Edit SSH Connection"
 	}
-	b.WriteString(formTitleStyle.Render(title))
+	b.WriteString(StyleTitle.Render(title))
 	b.WriteString("\n\n")
 
+	// Form field style
+	fieldLabelStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+
 	// Render inputs
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Name:", m.inputs[0].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Host:", m.inputs[1].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Port:", m.inputs[2].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Username:", m.inputs[3].View()))
+	b.WriteString(fieldLabelStyle.Render("Name:"))
+	b.WriteString("\n")
+	b.WriteString(m.inputs[0].View())
+	b.WriteString("\n\n")
+
+	b.WriteString(fieldLabelStyle.Render("Host:"))
+	b.WriteString("\n")
+	b.WriteString(m.inputs[1].View())
+	b.WriteString("\n\n")
+
+	b.WriteString(fieldLabelStyle.Render("Port:"))
+	b.WriteString("\n")
+	b.WriteString(m.inputs[2].View())
+	b.WriteString("\n\n")
+
+	b.WriteString(fieldLabelStyle.Render("Username:"))
+	b.WriteString("\n")
+	b.WriteString(m.inputs[3].View())
+	b.WriteString("\n\n")
 
 	// Auth method toggle
 	authMethod := "Using Password Authentication"
+	authStyle := StyleInfo
 	if !m.usePassword {
 		authMethod = "Using SSH Key Authentication"
+		authStyle = StyleSuccess
 	}
-	b.WriteString(fmt.Sprintf("%s (Ctrl+P to toggle)\n\n", authMethod))
+	b.WriteString(authStyle.Render(authMethod))
+	b.WriteString(" ")
+	b.WriteString(StyleHelp.Render("(Ctrl+P to toggle)"))
+	b.WriteString("\n\n")
 
 	// Render password or key file input based on auth method
 	if m.usePassword {
-		b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Password:", m.inputs[4].View()))
+		b.WriteString(fieldLabelStyle.Render("Password:"))
+		b.WriteString("\n")
+		b.WriteString(m.inputs[4].View())
+		b.WriteString("\n\n")
 	} else {
-		b.WriteString(fmt.Sprintf("%s\n%s\n\n", "SSH Key Path:", m.inputs[5].View()))
+		b.WriteString(fieldLabelStyle.Render("SSH Key Path:"))
+		b.WriteString("\n")
+		b.WriteString(m.inputs[5].View())
+		b.WriteString("\n\n")
 	}
 
 	// Render submit button
-	button := blurredButton
-	if m.focusIndex == len(m.inputs) {
-		button = focusedButton
-	}
-	fmt.Fprintf(&b, "\n%s\n", button)
+	button := RenderButton("Submit", m.focusIndex == len(m.inputs))
+	b.WriteString("\n")
+	b.WriteString(button)
+	b.WriteString("\n")
 
 	// Show error message if any
 	if m.errorMessage != "" {
-		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(m.errorMessage))
+		b.WriteString("\n")
+		b.WriteString(StyleError.Render(m.errorMessage))
+		b.WriteString("\n")
 	}
 
-	return formStyle.Render(b.String())
+	return StyleContainer.Render(b.String())
 }
 
 // IsCanceled returns whether the form was canceled

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
@@ -208,12 +207,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case StateConnectionList:
 			if m.connectionList != nil {
-				listModel := m.connectionList.List()
-				if listModel != nil && listModel.FilterState() == list.Filtering {
-					newList, cmd := listModel.Update(msg)
-					*listModel = newList
-					return m, cmd
-				}
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 					m.resetConnectionState()
@@ -268,12 +261,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case StateCollectionSelect:
 			if m.bitwardenCollectionList != nil {
-				listModel := m.bitwardenCollectionList.List()
-				if listModel != nil && listModel.FilterState() == list.Filtering {
-					newList, cmd := listModel.Update(msg)
-					*listModel = newList
-					return m, cmd
-				}
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 					m.resetCollectionState()
@@ -282,12 +269,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case StateOrganizationSelect:
 			if m.bitwardenOrganizationList != nil {
-				listModel := m.bitwardenOrganizationList.List()
-				if listModel != nil && listModel.FilterState() == list.Filtering {
-					newList, cmd := listModel.Update(msg)
-					*listModel = newList
-					return m, cmd
-				}
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 					m.resetOrganizationState()

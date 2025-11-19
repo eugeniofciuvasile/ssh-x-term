@@ -10,7 +10,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
@@ -104,7 +103,7 @@ type Model struct {
 
 func NewModel() *Model {
 	s := spinner.New()
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	s.Style = components.StyleSpinner
 	s.Spinner = spinner.Dot
 	return &Model{
 		state:         StateSelectStorage,

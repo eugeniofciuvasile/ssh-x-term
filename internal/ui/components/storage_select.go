@@ -2,7 +2,6 @@ package components
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type StorageBackend int
@@ -10,16 +9,6 @@ type StorageBackend int
 const (
 	StorageLocal StorageBackend = iota
 	StorageBitwarden
-)
-
-var (
-	storageSelectStyle = lipgloss.NewStyle().
-				Padding(1, 2)
-
-	storageSelectTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("205")).
-				MarginBottom(1)
 )
 
 type StorageSelect struct {
@@ -72,22 +61,24 @@ func (s *StorageSelect) View() string {
 	var content string
 
 	// Title
-	content += storageSelectTitleStyle.Render("Choose storage backend:") + "\n\n"
+	content += StyleTitle.Render("Choose storage backend:") + "\n\n"
 
 	// Options
 	for i, opt := range s.options {
-		style := lipgloss.NewStyle()
 		prefix := "  "
+		style := StyleNormal
 		if i == s.selectedIndex {
-			style = style.Bold(true).Foreground(lipgloss.Color("205"))
-			prefix = "> "
+			style = StyleFocused
+			prefix = StyleFocused.Render("❯ ")
+		} else {
+			prefix = StyleTextMuted.Render("  ")
 		}
-		content += style.Render(prefix+opt) + "\n"
+		content += prefix + style.Render(opt) + "\n"
 	}
 
 	content += "\n"
 
-	return storageSelectStyle.Render(content)
+	return StyleContainer.Render(content)
 }
 
 func (s *StorageSelect) SelectedBackend() StorageBackend {

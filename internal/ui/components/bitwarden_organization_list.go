@@ -2,55 +2,32 @@ package components
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type organizationItem struct {
-	organization config.Organization
-}
-
-func (i organizationItem) FilterValue() string { return i.organization.Name }
-func (i organizationItem) Title() string       { return i.organization.Name }
-func (i organizationItem) Description() string { return "" }
-
 type BitwardenOrganizationList struct {
-	list           list.Model
 	organizations  []config.Organization
+	selectedIndex  int
 	selectedOrg    *config.Organization
 	highlightedOrg *config.Organization
+	width          int
+	height         int
+	scrollOffset   int
 }
 
 func NewBitwardenOrganizationList(organizations []config.Organization) *BitwardenOrganizationList {
-	items := make([]list.Item, len(organizations))
-	for i, org := range organizations {
-		items[i] = organizationItem{organization: org}
-	}
-	l := list.New(items, list.NewDefaultDelegate(), 60, 20)
-	l.Title = "Organizations"
-	l.SetShowStatusBar(false)
-	l.SetFilteringEnabled(true)
-	// Use the same styles as connection list
-	l.Styles.Title = titleStyle
-	l.Styles.PaginationStyle = paginationStyle
-	l.Styles.HelpStyle = helpStyle
-	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{
-			key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open personal vault")),
-		}
-	}
-
 	var highlighted *config.Organization
 	if len(organizations) > 0 {
 		highlighted = &organizations[0]
 	}
 
 	return &BitwardenOrganizationList{
-		list:           l,
 		organizations:  organizations,
+		selectedIndex:  0,
 		highlightedOrg: highlighted,
 	}
 }
@@ -58,44 +35,93 @@ func NewBitwardenOrganizationList(organizations []config.Organization) *Bitwarde
 func (cl *BitwardenOrganizationList) Init() tea.Cmd { return nil }
 
 func (cl *BitwardenOrganizationList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cl.SetSize(msg.Width, msg.Height)
 		return cl, nil
+
 	case tea.KeyMsg:
-		if cl.list.FilterState() == list.Filtering {
-			newList, cmd := cl.list.Update(msg)
-			cl.list = newList
-			return cl, cmd
-		}
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			if selectedItem := cl.list.SelectedItem(); selectedItem != nil {
-				if orgItem, ok := selectedItem.(organizationItem); ok {
-					cl.selectedOrg = &orgItem.organization
-					return cl, nil
-				}
+		switch msg.String() {
+		case "up", "k":
+			if cl.selectedIndex > 0 {
+				cl.selectedIndex--
+				cl.updateHighlighted()
+			}
+		case "down", "j":
+			if cl.selectedIndex < len(cl.organizations)-1 {
+				cl.selectedIndex++
+				cl.updateHighlighted()
+			}
+		case "enter":
+			if len(cl.organizations) > 0 && cl.selectedIndex < len(cl.organizations) {
+				cl.selectedOrg = &cl.organizations[cl.selectedIndex]
+				return cl, nil
 			}
 		}
 	}
-	newList, cmd := cl.list.Update(msg)
-	cl.list = newList
-	if item := cl.list.SelectedItem(); item != nil {
-		if orgItem, ok := item.(organizationItem); ok {
-			cl.highlightedOrg = &orgItem.organization
-		}
-	} else {
-		cl.highlightedOrg = nil
-	}
-	return cl, cmd
+
+	return cl, nil
 }
 
 func (cl *BitwardenOrganizationList) View() string {
 	if len(cl.organizations) == 0 {
-		return fmt.Sprintf("\n%s\n\n  No organizations found.\n\n", titleStyle.Render("Organizations"))
+		return StyleContainer.Render(
+			StyleTitle.Render("Organizations") + "\n\n" +
+				StyleTextMuted.Render("No organizations found."),
+		)
 	}
-	return cl.list.View()
+
+	var b strings.Builder
+
+	b.WriteString(StyleTitle.Render("Select Organization"))
+	b.WriteString("\n\n")
+
+	// Calculate visible area
+	visibleHeight := cl.height - 8
+	if visibleHeight < 5 {
+		visibleHeight = 5
+	}
+
+	// Adjust scroll offset
+	if cl.selectedIndex < cl.scrollOffset {
+		cl.scrollOffset = cl.selectedIndex
+	}
+	if cl.selectedIndex >= cl.scrollOffset+visibleHeight {
+		cl.scrollOffset = cl.selectedIndex - visibleHeight + 1
+	}
+
+	endIndex := cl.scrollOffset + visibleHeight
+	if endIndex > len(cl.organizations) {
+		endIndex = len(cl.organizations)
+	}
+
+	// Render list items
+	for i := cl.scrollOffset; i < endIndex; i++ {
+		org := cl.organizations[i]
+		prefix := "  "
+		style := StyleNormal
+
+		if i == cl.selectedIndex {
+			style = StyleFocused
+			prefix = StyleFocused.Render("❯ ")
+		} else {
+			prefix = StyleTextMuted.Render("  ")
+		}
+
+		b.WriteString(prefix + style.Render(org.Name) + "\n")
+	}
+
+	// Scroll indicator
+	if len(cl.organizations) > visibleHeight {
+		scrollInfo := fmt.Sprintf("\n%s Showing %d-%d of %d",
+			StyleTextMuted.Render("↕"),
+			cl.scrollOffset+1,
+			endIndex,
+			len(cl.organizations))
+		b.WriteString(StyleHelp.Render(scrollInfo))
+	}
+
+	return StyleContainer.Render(b.String())
 }
 
 func (cl *BitwardenOrganizationList) SelectedOrganization() *config.Organization {
@@ -108,23 +134,22 @@ func (cl *BitwardenOrganizationList) HighlightedOrganization() *config.Organizat
 
 func (cl *BitwardenOrganizationList) SetOrganizations(organizations []config.Organization) {
 	cl.organizations = organizations
-	items := make([]list.Item, len(organizations))
-	for i, org := range organizations {
-		items[i] = organizationItem{organization: org}
+	if cl.selectedIndex >= len(organizations) {
+		cl.selectedIndex = len(organizations) - 1
 	}
-	cl.list.SetItems(items)
+	if cl.selectedIndex < 0 {
+		cl.selectedIndex = 0
+	}
+	cl.updateHighlighted()
 }
 
-func (cl *BitwardenOrganizationList) List() *list.Model { return &cl.list }
+func (cl *BitwardenOrganizationList) List() interface{} { return nil }
 
 func (cl *BitwardenOrganizationList) Reset() {
 	cl.selectedOrg = nil
-	cl.list.Select(0)
-	if len(cl.organizations) > 0 {
-		cl.highlightedOrg = &cl.organizations[0]
-	} else {
-		cl.highlightedOrg = nil
-	}
+	cl.selectedIndex = 0
+	cl.scrollOffset = 0
+	cl.updateHighlighted()
 }
 
 func (cl *BitwardenOrganizationList) SetSize(width, height int) {
@@ -134,7 +159,14 @@ func (cl *BitwardenOrganizationList) SetSize(width, height int) {
 	if height <= 0 {
 		height = 20
 	}
-	cl.list.SetWidth(width)
-	// Use full available height for the list
-	cl.list.SetHeight(height)
+	cl.width = width
+	cl.height = height
+}
+
+func (cl *BitwardenOrganizationList) updateHighlighted() {
+	if len(cl.organizations) > 0 && cl.selectedIndex < len(cl.organizations) {
+		cl.highlightedOrg = &cl.organizations[cl.selectedIndex]
+	} else {
+		cl.highlightedOrg = nil
+	}
 }
