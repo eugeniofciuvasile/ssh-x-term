@@ -13,43 +13,36 @@ import (
 )
 
 var (
-	scpHeaderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Background(lipgloss.Color("4")).
-			Foreground(lipgloss.Color("255")).
-			Align(lipgloss.Center).
-			Padding(0, 1)
+	scpHeaderStyle = StyleHeader.
+			Align(lipgloss.Center)
 
 	scpPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(1, 2)
+			BorderForeground(ColorBorder).
+			Padding(0, 1)
 
 	scpActivePanelStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("205")).
-				Padding(1, 2)
+				BorderForeground(ColorBorderFocus).
+				Padding(0, 1)
 
-	scpFileStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255"))
+	scpFileStyle = StyleNormal
 
 	scpDirStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
+			Foreground(ColorInfo).
 			Bold(true)
 
 	scpSelectedStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("237")).
-				Foreground(lipgloss.Color("255"))
+				Background(ColorPrimary).
+				Foreground(ColorBackground).
+				Bold(true)
 
-	scpErrorStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("9")).
-			Padding(0, 2)
+	scpErrorStyle = StyleError.Padding(0, 2)
 
-	scpStatusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Background(lipgloss.Color("235")).
-			Padding(0, 2)
+	scpStatusStyle = StyleFooter
+
+	scpScrollIndicatorStyle = lipgloss.NewStyle().
+				Foreground(ColorTextMuted)
 )
 
 // Panel represents either local or remote file panel
@@ -178,6 +171,9 @@ func (s *SCPManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.height = msg.Height
 		return s, nil
 
+	case tea.MouseMsg:
+		return s.handleMouse(msg)
+
 	case SCPConnectionMsg:
 		s.loading = false
 		if msg.Err != nil {
@@ -265,45 +261,72 @@ func (s *SCPManager) View() string {
 // renderPanels renders the split panel view
 func (s *SCPManager) renderPanels() string {
 	if s.loading {
-		return "\n  Connecting to remote server...\n"
+		return StyleContainer.Render("\n  Connecting to remote server...\n")
 	}
 
-	// Calculate panel dimensions
-	panelWidth := (s.width / 2) - 4
-	panelHeight := s.height - 6 // Reserve space for header, footer, borders
+	// Calculate panel dimensions - use full width with minimal padding
+	panelWidth := (s.width / 2) - 2
+	panelHeight := s.height - 4 // Reserve space for header and footer only
 
-	// Render local panel
-	localTitle := "Local: " + s.localPanel.Path
-	localContent := s.renderPanelContent(&s.localPanel, panelHeight)
+	// Render local panel with title and content
+	localTitleStyle := StyleTitle.Foreground(ColorInfo)
+	if s.activePanel == 0 {
+		localTitleStyle = StyleTitle.Foreground(ColorPrimary)
+	}
+	localTitle := localTitleStyle.Render("◀ Local: " + s.localPanel.Path)
+	localContent := s.renderPanelContent(&s.localPanel, panelHeight-2)
+	localScrollInfo := s.renderScrollInfo(&s.localPanel, panelHeight-2)
 
 	var localPanel string
-	if s.activePanel == 0 {
-		localPanel = scpActivePanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, localTitle, "", localContent),
-		)
-	} else {
-		localPanel = scpPanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, localTitle, "", localContent),
-		)
+	localBody := lipgloss.JoinVertical(lipgloss.Left, localTitle, localContent)
+	if localScrollInfo != "" {
+		localBody = lipgloss.JoinVertical(lipgloss.Left, localBody, localScrollInfo)
 	}
 
-	// Render remote panel
-	remoteTitle := "Remote: " + s.remotePanel.Path
-	remoteContent := s.renderPanelContent(&s.remotePanel, panelHeight)
+	if s.activePanel == 0 {
+		localPanel = scpActivePanelStyle.Width(panelWidth).Height(panelHeight).Render(localBody)
+	} else {
+		localPanel = scpPanelStyle.Width(panelWidth).Height(panelHeight).Render(localBody)
+	}
+
+	// Render remote panel with title and content
+	remoteTitleStyle := StyleTitle.Foreground(ColorInfo)
+	if s.activePanel == 1 {
+		remoteTitleStyle = StyleTitle.Foreground(ColorPrimary)
+	}
+	remoteTitle := remoteTitleStyle.Render("Remote: " + s.remotePanel.Path + " ▶")
+	remoteContent := s.renderPanelContent(&s.remotePanel, panelHeight-2)
+	remoteScrollInfo := s.renderScrollInfo(&s.remotePanel, panelHeight-2)
 
 	var remotePanel string
+	remoteBody := lipgloss.JoinVertical(lipgloss.Left, remoteTitle, remoteContent)
+	if remoteScrollInfo != "" {
+		remoteBody = lipgloss.JoinVertical(lipgloss.Left, remoteBody, remoteScrollInfo)
+	}
+
 	if s.activePanel == 1 {
-		remotePanel = scpActivePanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, remoteTitle, "", remoteContent),
-		)
+		remotePanel = scpActivePanelStyle.Width(panelWidth).Height(panelHeight).Render(remoteBody)
 	} else {
-		remotePanel = scpPanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, remoteTitle, "", remoteContent),
-		)
+		remotePanel = scpPanelStyle.Width(panelWidth).Height(panelHeight).Render(remoteBody)
 	}
 
 	// Join panels horizontally
 	return lipgloss.JoinHorizontal(lipgloss.Top, localPanel, remotePanel)
+}
+
+// renderScrollInfo renders scroll position indicator
+func (s *SCPManager) renderScrollInfo(panel *Panel, maxHeight int) string {
+	if len(panel.Files) <= maxHeight {
+		return ""
+	}
+
+	totalFiles := len(panel.Files)
+	visibleStart := panel.ScrollOffset + 1
+	visibleEnd := min(panel.ScrollOffset+maxHeight, totalFiles)
+
+	return scpScrollIndicatorStyle.Render(
+		fmt.Sprintf("↕ Showing %d-%d of %d (use mouse wheel to scroll)", visibleStart, visibleEnd, totalFiles),
+	)
 }
 
 // renderPanelContent renders the file list for a panel
@@ -431,6 +454,57 @@ func (s *SCPManager) getFileIcon(file ssh.FileInfo) string {
 	default:
 		return "📄"
 	}
+}
+
+// handleMouse handles mouse input including scroll wheel
+func (s *SCPManager) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Skip if in special input mode
+	if s.inputMode != ModeNormal {
+		return s, nil
+	}
+
+	panel := s.getActivePanel()
+	if panel == nil {
+		return s, nil
+	}
+
+	panelHeight := s.height - 6 // Reserve space for header, footer, borders
+	maxScroll := max(0, len(panel.Files)-panelHeight)
+
+	switch msg.Type {
+	case tea.MouseWheelUp:
+		// Scroll up
+		if panel.ScrollOffset > 0 {
+			panel.ScrollOffset--
+			// Adjust selected index if needed
+			if panel.SelectedIdx < panel.ScrollOffset {
+				panel.SelectedIdx = panel.ScrollOffset
+			}
+		}
+		return s, nil
+
+	case tea.MouseWheelDown:
+		// Scroll down
+		if panel.ScrollOffset < maxScroll {
+			panel.ScrollOffset++
+			// Adjust selected index if needed
+			if panel.SelectedIdx >= panel.ScrollOffset+panelHeight {
+				panel.SelectedIdx = panel.ScrollOffset + panelHeight - 1
+			}
+		}
+		return s, nil
+
+	case tea.MouseLeft:
+		// Determine which panel was clicked (very approximate)
+		if msg.X < s.width/2 {
+			s.activePanel = 0
+		} else {
+			s.activePanel = 1
+		}
+		return s, nil
+	}
+
+	return s, nil
 }
 
 // handleKey handles keyboard input
