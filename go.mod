@@ -14,7 +14,6 @@ require (
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/sahilm/fuzzy v0.1.1 // indirect
 )
 
 require (
