@@ -103,7 +103,7 @@ func (m *Model) View() string {
 
 		content = lipgloss.NewStyle().
 			Width(m.width).
-			Height(contentHeight).
+			Height(contentHeight-1).
 			Align(lipgloss.Center, lipgloss.Center). // Center Horizontally and Vertically
 			Render(spinnerView)
 
