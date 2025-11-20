@@ -9,21 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	bwFocusedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	bwBlurredStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	bwFocusedButton = bwFocusedStyle.Render("[ Submit ]")
-	bwBlurredButton = fmt.Sprintf("[ %s ]", bwBlurredStyle.Render("Submit"))
-
-	bwConfigFormStyle = lipgloss.NewStyle().
-				Padding(1, 2)
-
-	bwConfigTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("205")).
-				MarginBottom(1)
-)
-
 type BitwardenConfigForm struct {
 	inputs     []textinput.Model
 	focusIndex int

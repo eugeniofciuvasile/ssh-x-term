@@ -620,8 +620,8 @@ func TestVTerminalCursorPositioning(t *testing.T) {
 	t.Run("Visual cursor not shown when scrolled back", func(t *testing.T) {
 		vt := NewVTerminal(80, 10)
 		// Write enough lines to create scrollback
-		for i := 0; i < 15; i++ {
-			vt.Write([]byte(fmt.Sprintf("Line %d\n", i)))
+		for i := range 15 {
+			vt.Write(fmt.Appendf(nil, "Line %d\n", i))
 		}
 
 		// Scroll back
@@ -695,8 +695,8 @@ func TestVTerminalCursorPositioning(t *testing.T) {
 		}
 
 		// Scroll back and check cursor is not shown
-		for i := 0; i < 30; i++ {
-			vt.Write([]byte(fmt.Sprintf("Line %d\n", i)))
+		for i := range 30 {
+			vt.Write(fmt.Appendf(nil, "Line %d\n", i))
 		}
 		vt.ScrollUp(5)
 		outputScrolled := vt.Render()

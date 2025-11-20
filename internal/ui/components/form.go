@@ -13,23 +13,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	blurredStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	noStyle      = lipgloss.NewStyle()
-
-	focusedButton = focusedStyle.Render("[ Submit ]")
-	blurredButton = fmt.Sprintf("[ %s ]", blurredStyle.Render("Submit"))
-
-	formStyle = lipgloss.NewStyle().
-			Padding(1, 2)
-
-	formTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205")).
-			MarginBottom(1)
-)
-
 // ConnectionForm represents a form for creating/editing connections
 type ConnectionForm struct {
 	inputs       []textinput.Model

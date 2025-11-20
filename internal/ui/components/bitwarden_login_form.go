@@ -6,15 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	bwFormStyle = lipgloss.NewStyle().
-			Padding(1, 2)
-
-	bwTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205")).
-			MarginBottom(1)
-)
+var ()
 
 type BitwardenLoginForm struct {
 	passwordInput textinput.Model

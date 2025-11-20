@@ -6,16 +6,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	bwUnlockFormStyle = lipgloss.NewStyle().
-				Padding(1, 2)
-
-	bwUnlockTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("205")).
-				MarginBottom(1)
-)
-
 type BitwardenUnlockForm struct {
 	passwordInput textinput.Model
 	submitted     bool

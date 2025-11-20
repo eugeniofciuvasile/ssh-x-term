@@ -12,16 +12,6 @@ const (
 	StorageBitwarden
 )
 
-var (
-	storageSelectStyle = lipgloss.NewStyle().
-				Padding(1, 2)
-
-	storageSelectTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("205")).
-				MarginBottom(1)
-)
-
 type StorageSelect struct {
 	options       []string
 	selectedIndex int

@@ -12,46 +12,6 @@ import (
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ssh"
 )
 
-var (
-	scpHeaderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Background(lipgloss.Color("4")).
-			Foreground(lipgloss.Color("255")).
-			Align(lipgloss.Center).
-			Padding(0, 1)
-
-	scpPanelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(1, 2)
-
-	scpActivePanelStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("205")).
-				Padding(1, 2)
-
-	scpFileStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255"))
-
-	scpDirStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
-			Bold(true)
-
-	scpSelectedStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("237")).
-				Foreground(lipgloss.Color("255"))
-
-	scpErrorStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("9")).
-			Padding(0, 2)
-
-	scpStatusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Background(lipgloss.Color("235")).
-			Padding(0, 2)
-)
-
 // Panel represents either local or remote file panel
 type Panel struct {
 	Path         string
@@ -1157,18 +1117,4 @@ func formatSize(size int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

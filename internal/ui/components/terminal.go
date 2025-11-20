@@ -12,21 +12,6 @@ import (
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ssh"
 )
 
-var (
-	terminalHeaderStyle = lipgloss.NewStyle().
-				Bold(true).
-				Background(lipgloss.Color("4")).
-				Foreground(lipgloss.Color("255")).
-				Align(lipgloss.Center).
-				Padding(0, 1)
-
-	terminalErrorStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("9")).
-				Align(lipgloss.Center).
-				Padding(1, 0)
-)
-
 // SSHOutputMsg contains output from the SSH session
 type SSHOutputMsg struct {
 	Data []byte

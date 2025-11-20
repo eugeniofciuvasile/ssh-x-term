@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -47,12 +48,47 @@ func (m *Model) View() string {
 	headerStyle = headerStyle.Width(m.width)
 	footerStyle = footerStyle.Width(m.width)
 
-	// Render header
-	headerText := "SSH-X-Term"
-	if m.loading {
-		headerText += " " + m.spinner.View() + " Loading..."
+	// --- Dynamic Title Generation ---
+	title := "SSH-X-Term"
+	switch m.state {
+	case StateSelectStorage:
+		title = "Select Storage Provider"
+	case StateBitwardenConfig:
+		title = "Bitwarden Configuration"
+	case StateBitwardenLogin:
+		title = "Bitwarden Login"
+	case StateBitwardenUnlock:
+		title = "Unlock Bitwarden Vault"
+	case StateOrganizationSelect:
+		title = "Select Organization"
+	case StateCollectionSelect:
+		title = "Select Collection"
+	case StateConnectionList:
+		// We can pull state from the list component to show in the global header
+		if m.connectionList != nil {
+			checkboxStr := "[ ]"
+			if m.connectionList.OpenInNewTerminal() {
+				checkboxStr = "[x]"
+			}
+			title = fmt.Sprintf("SSH Connections - Open in New Terminal %s", checkboxStr)
+		} else {
+			title = "SSH Connections"
+		}
+	case StateAddConnection:
+		title = "Add New Connection"
+	case StateEditConnection:
+		title = "Edit Connection"
+	case StateSSHTerminal:
+		title = "Terminal Session"
+	case StateSCPFileManager:
+		title = "SCP File Manager"
 	}
-	header := headerStyle.Render(headerText)
+
+	if m.loading {
+		title += " " + m.spinner.View() + " Loading..."
+	}
+	header := headerStyle.Render(title)
+	// --------------------------------
 
 	// Render content
 	var contentBuilder strings.Builder
