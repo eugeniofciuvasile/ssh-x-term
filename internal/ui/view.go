@@ -13,6 +13,7 @@ var (
 			Bold(true).
 			Foreground(lipgloss.Color("170")).
 			Background(lipgloss.Color("235")).
+			Align(lipgloss.Center).
 			Padding(0, 2).
 			Width(0) // Will be set dynamically
 
@@ -20,16 +21,19 @@ var (
 	footerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
 			Background(lipgloss.Color("235")).
+			Align(lipgloss.Center).
 			Padding(0, 2).
 			Width(0) // Will be set dynamically
 
 	// Content style - fills the middle space
 	contentStyle = lipgloss.NewStyle().
+			Align(lipgloss.Center).
 			Padding(1, 2)
 
 	errorStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("9")).
+			Align(lipgloss.Center).
 			Padding(0, 2)
 )
 
@@ -64,11 +68,10 @@ func (m *Model) View() string {
 	case StateCollectionSelect:
 		title = "Select Collection"
 	case StateConnectionList:
-		// We can pull state from the list component to show in the global header
 		if m.connectionList != nil {
-			checkboxStr := "[ ]"
+			checkboxStr := "( )"
 			if m.connectionList.OpenInNewTerminal() {
-				checkboxStr = "[x]"
+				checkboxStr = "(✓)"
 			}
 			title = fmt.Sprintf("SSH Connections - Open in New Terminal %s", checkboxStr)
 		} else {
@@ -84,50 +87,59 @@ func (m *Model) View() string {
 		title = "SCP File Manager"
 	}
 
-	if m.loading {
-		title += " " + m.spinner.View() + " Loading..."
-	}
+	// Note: We removed the spinner from the header here
 	header := headerStyle.Render(title)
 	// --------------------------------
 
-	// Render content
-	var contentBuilder strings.Builder
+	// --- Render Content ---
+	var content string
 
-	// Show error message if present
-	if m.errorMessage != "" {
-		contentBuilder.WriteString(errorStyle.Render(m.errorMessage))
-		contentBuilder.WriteString("\n")
-		// Clear error message after displaying it once
-		m.errorMessage = ""
-	}
+	// Check if we are in a blocking loading state
+	// We don't block for Terminal or SCP as they handle their own async states/views
+	if m.loading && m.state != StateSSHTerminal && m.state != StateSCPFileManager {
 
-	// Show current component
-	if activeComponent := m.getActiveComponent(); activeComponent != nil {
-		defer func() {
-			if r := recover(); r != nil {
-				contentBuilder.WriteString(errorStyle.Render("Component error: invalid UI state"))
-			}
-		}()
+		// Create a centered container for the spinner
+		spinnerView := fmt.Sprintf("%s Loading...", m.spinner.View())
 
-		// Don't render component details while loading for a cleaner look
-		// except for terminal and SCP manager which should always be shown
-		if !m.loading || m.state == StateSSHTerminal || m.state == StateSCPFileManager {
-			contentBuilder.WriteString(activeComponent.View())
-		}
-	} else if !m.loading {
-		contentBuilder.WriteString(contentStyle.Render("No active component"))
-	}
-
-	content := contentBuilder.String()
-
-	// For terminal and SCP manager states, ensure content fills the available space
-	// These components already include their own headers
-	if m.state == StateSSHTerminal || m.state == StateSCPFileManager {
-		// Content should already fill the space, just ensure proper height
 		content = lipgloss.NewStyle().
-			Height(contentHeight).
 			Width(m.width).
-			Render(content)
+			Height(contentHeight).
+			Align(lipgloss.Center, lipgloss.Center). // Center Horizontally and Vertically
+			Render(spinnerView)
+
+	} else {
+		// Standard Component Rendering
+		var contentBuilder strings.Builder
+
+		// Show error message if present
+		if m.errorMessage != "" {
+			contentBuilder.WriteString(errorStyle.Render(m.errorMessage))
+			contentBuilder.WriteString("\n")
+			m.errorMessage = ""
+		}
+
+		if activeComponent := m.getActiveComponent(); activeComponent != nil {
+			// Handle panic recovery for components
+			defer func() {
+				if r := recover(); r != nil {
+					contentBuilder.WriteString(errorStyle.Render("Component error: invalid UI state"))
+				}
+			}()
+			contentBuilder.WriteString(activeComponent.View())
+		} else {
+			contentBuilder.WriteString(contentStyle.Render("No active component"))
+		}
+
+		content = contentBuilder.String()
+
+		// For specific states, ensure content fills the space manually
+		// (Lipgloss styles inside the component usually handle this, but this is a safety net)
+		if m.state == StateSSHTerminal || m.state == StateSCPFileManager {
+			content = lipgloss.NewStyle().
+				Height(contentHeight).
+				Width(m.width).
+				Render(content)
+		}
 	}
 
 	// Render footer with help text
@@ -146,19 +158,15 @@ func (m *Model) getHelpText() string {
 
 	switch m.state {
 	case StateConnectionList:
-		return "a: add | e: edit | d: delete | s: scp | o: toggle new terminal | enter: connect | ctrl+c: quit"
+		return "a: add | e: edit | d: delete | s: scp | / filter | o: toggle new terminal | enter: connect | ctrl+c: quit"
 	case StateSSHTerminal:
-		// Get detailed help text from terminal component
 		if m.terminal != nil {
 			if m.terminal.IsSessionClosed() {
 				return "Session closed - Press ESC to return"
 			}
-
-			// Show detailed help for wider terminals, compact for narrow
 			if m.terminal.GetWidth() < 80 || m.width < 80 {
 				return "ESC: Exit | CTRL+D: EOF | Scroll: PgUp/PgDn"
 			}
-
 			return "ESC: Exit | CTRL+D: EOF | PgUp/PgDn: Scroll Vertically | Tab: Complete Command | Mouse: Copy Text"
 		}
 		return "esc: disconnect"

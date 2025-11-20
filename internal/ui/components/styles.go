@@ -45,9 +45,9 @@ var (
 	// --- List & Table Styles ---
 
 	paginationStyle = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
-	helpStyle       = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+	helpStyle       = list.DefaultStyles().HelpStyle.PaddingLeft(4).Align(lipgloss.Center).PaddingBottom(1)
 
-	// Table column headers - Now uses the Cream Accent color
+	// Table column headers
 	headerStyle = lipgloss.NewStyle().
 			Foreground(colorAccent).
 			Bold(true)
@@ -107,7 +107,7 @@ var (
 			Foreground(colorSecondary). // Blue text
 			Bold(true)
 
-	// Selected file in list - Uses Cream Accent text on dark background
+	// Selected file in list
 	scpSelectedStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("237")).
 				Foreground(colorAccent).

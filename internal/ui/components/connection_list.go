@@ -114,17 +114,8 @@ func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
+	l.SetShowHelp(false)
 	l.Styles.PaginationStyle = paginationStyle
-	l.Styles.HelpStyle = helpStyle
-
-	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{
-			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add connection")),
-			key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
-			key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete connection")),
-			key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "toggle open in new terminal")),
-		}
-	}
 
 	var highlighted *config.SSHConnection
 	if len(connections) > 0 {
@@ -252,7 +243,7 @@ func (cl *ConnectionList) SetSize(width, height int) {
 	// 2. Global Footer (managed by parent) -> 1 line
 	// 3. Table Header (managed here) -> 1 line
 	// Total overhead = 3 lines
-	listHeight := max(height-3, 1)
+	listHeight := max(height-2, 1)
 	cl.list.SetHeight(listHeight)
 	cl.list.SetWidth(width)
 
@@ -266,8 +257,8 @@ func (cl *ConnectionList) recalculateTableLayout(totalWidth int) {
 
 	// Define fixed or minimum widths
 	const (
-		minPortWidth = 6
-		minAuthWidth = 12
+		minPortWidth = 12
+		minAuthWidth = 16
 	)
 
 	// Strategy:

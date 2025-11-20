@@ -26,6 +26,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.errorMessage = msg.Err.Error()
 			m.state = StateSelectStorage
+			// Ensure size is set if falling back
+			m.storageSelect.SetSize(m.width, m.height)
 			return m, nil
 		}
 		if !msg.LoggedIn {
@@ -160,6 +162,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Ensure storage select gets resized if it's active (or in background)
+		if m.storageSelect != nil {
+			m.storageSelect.SetSize(msg.Width, msg.Height)
+		}
+
 		if activeComponent := m.getActiveComponent(); activeComponent != nil {
 			// For terminal and SCP manager states, we need to calculate the actual content area
 			// since they need to know the exact dimensions they have to work with
@@ -195,12 +202,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.formHasError = false
 					m.state = StateSelectStorage
 					m.storageSelect = components.NewStorageSelect()
+					m.storageSelect.SetSize(m.width, m.height)
 					return m, m.storageSelect.Init()
 				case StateBitwardenUnlock:
 					m.bitwardenUnlockForm = nil
 					m.formHasError = false
 					m.state = StateSelectStorage
 					m.storageSelect = components.NewStorageSelect()
+					m.storageSelect.SetSize(m.width, m.height)
 					return m, m.storageSelect.Init()
 				}
 			}
@@ -219,6 +228,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.resetConnectionState()
 					if m.state == StateSelectStorage {
 						m.storageSelect = components.NewStorageSelect()
+						m.storageSelect.SetSize(m.width, m.height)
 						return m, m.storageSelect.Init()
 					}
 					return m, nil
@@ -291,6 +301,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 					m.resetOrganizationState()
+					m.storageSelect.SetSize(m.width, m.height)
 					return m, m.storageSelect.Init()
 				case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
 					return m, m.loadPersonalVaultConnections()

@@ -376,6 +376,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			m.bitwardenForm = nil
 			m.state = StateSelectStorage
 			m.storageSelect = components.NewStorageSelect()
+			m.storageSelect.SetSize(m.width, m.height)
 			return nil
 		}
 		if m.bitwardenForm.IsSubmitted() {
@@ -399,6 +400,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			m.bitwardenLoginForm = nil
 			m.state = StateSelectStorage
 			m.storageSelect = components.NewStorageSelect()
+			m.storageSelect.SetSize(m.width, m.height)
 			return nil
 		}
 		if m.bitwardenLoginForm.IsSubmitted() {
@@ -416,6 +418,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			m.bitwardenUnlockForm = nil
 			m.state = StateSelectStorage
 			m.storageSelect = components.NewStorageSelect()
+			m.storageSelect.SetSize(m.width, m.height)
 			return nil
 		}
 		if m.bitwardenUnlockForm.IsSubmitted() {
@@ -506,6 +509,7 @@ func (m *Model) resetConnectionState() {
 	case components.StorageLocal:
 		m.state = StateSelectStorage
 		m.storageSelect = components.NewStorageSelect()
+		m.storageSelect.SetSize(m.width, m.height)
 	case components.StorageBitwarden:
 		if m.bitwardenCollectionList != nil {
 			m.bitwardenCollectionList.Reset()
@@ -544,4 +548,5 @@ func (m *Model) resetOrganizationState() {
 	}
 	m.state = StateSelectStorage
 	m.storageSelect = components.NewStorageSelect()
+	m.storageSelect.SetSize(m.width, m.height)
 }
