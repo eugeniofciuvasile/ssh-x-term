@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -43,6 +44,11 @@ func NewSFTPClient(connConfig config.SSHConnection) (*SFTPClient, error) {
 	// Create SSH client first
 	client, err := NewClient(connConfig)
 	if err != nil {
+		// Check if it's a passphrase error - don't wrap it
+		var passphraseErr *PassphraseRequiredError
+		if errors.As(err, &passphraseErr) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to create SSH client: %w", err)
 	}
 

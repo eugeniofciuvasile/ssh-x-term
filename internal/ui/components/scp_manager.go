@@ -1,6 +1,7 @@
 package components
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -151,6 +152,11 @@ func (s *SCPManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.remotePanel.Path = msg.WorkingDir
 
 		return s, s.listRemoteFiles()
+
+	case SSHPassphraseRequiredMsg:
+		return s, func() tea.Msg {
+			return msg
+		}
 
 	case SCPListFilesMsg:
 		if msg.Err != nil {
@@ -1000,6 +1006,13 @@ func (s *SCPManager) connectSFTP() tea.Cmd {
 	return func() tea.Msg {
 		client, err := ssh.NewSFTPClient(s.connection)
 		if err != nil {
+			var passphraseErr *ssh.PassphraseRequiredError
+			if errors.As(err, &passphraseErr) {
+				return SSHPassphraseRequiredMsg{
+					Connection: s.connection,
+					KeyFile:    passphraseErr.KeyFile,
+				}
+			}
 			return SCPConnectionMsg{nil, "", err}
 		}
 

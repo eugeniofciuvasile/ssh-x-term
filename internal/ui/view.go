@@ -85,6 +85,8 @@ func (m *Model) View() string {
 		title = "Terminal Session"
 	case StateSCPFileManager:
 		title = "SCP File Manager"
+	case StateSSHPassphrase:
+		title = "SSH Authentication Required"
 	}
 
 	// Note: We removed the spinner from the header here
@@ -186,6 +188,8 @@ func (m *Model) getHelpText() string {
 		return "↑/↓: navigate | enter: select | esc: back"
 	case StateAddConnection, StateEditConnection:
 		return "tab: next field | ctrl+p: toggle auth | enter: save | esc: cancel"
+	case StateSSHPassphrase:
+		return "enter: submit | esc: cancel"
 	default:
 		return "ctrl+c: quit"
 	}
