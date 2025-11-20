@@ -389,6 +389,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			}
 			m.bitwardenManager = bwm
 			m.bitwardenLoginForm = components.NewBitwardenLoginForm()
+			m.bitwardenLoginForm.SetSize(m.width, m.height)
 			m.state = StateBitwardenLogin
 			return nil
 		}

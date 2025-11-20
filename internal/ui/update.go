@@ -32,9 +32,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !msg.LoggedIn {
 			m.bitwardenForm = components.NewBitwardenConfigForm()
+			m.bitwardenForm.SetSize(m.width, m.height)
 			m.state = StateBitwardenConfig
 		} else if !msg.Unlocked {
 			m.bitwardenUnlockForm = components.NewBitwardenUnlockForm()
+			m.bitwardenUnlockForm.SetSize(m.width, m.height)
 			m.state = StateBitwardenUnlock
 		} else {
 			m.loading = true
@@ -89,6 +91,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.formHasError = true
 			m.bitwardenLoginForm.ResetSubmitted()
 			m.bitwardenLoginForm = components.NewBitwardenLoginForm()
+			m.bitwardenLoginForm.SetSize(m.width, m.height)
 			return m, nil
 		}
 		m.formHasError = false
@@ -111,6 +114,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.formHasError = true
 			m.bitwardenUnlockForm.ResetSubmitted()
 			m.bitwardenUnlockForm = components.NewBitwardenUnlockForm()
+			m.bitwardenUnlockForm.SetSize(m.width, m.height)
 			return m, nil
 		}
 		m.formHasError = false
