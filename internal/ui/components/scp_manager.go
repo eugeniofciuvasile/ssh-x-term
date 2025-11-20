@@ -36,8 +36,9 @@ type (
 	}
 
 	SCPConnectionMsg struct {
-		Client *ssh.SFTPClient
-		Err    error
+		Client     *ssh.SFTPClient
+		WorkingDir string
+		Err        error
 	}
 )
 
@@ -147,6 +148,8 @@ func (s *SCPManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		s.sftpClient = msg.Client
 		s.status = "Connected"
+		s.remotePanel.Path = msg.WorkingDir
+
 		return s, s.listRemoteFiles()
 
 	case SCPListFilesMsg:
@@ -195,13 +198,10 @@ func (s *SCPManager) View() string {
 
 	// Build header
 	headerText := fmt.Sprintf(
-		"SCP File Manager: %s@%s:%d - %s",
+		"%s@%s:%d - %s",
 		s.connection.Username, s.connection.Host, s.connection.Port, s.connection.Name,
 	)
 	header := scpHeaderStyle.Width(s.width).Render(headerText)
-
-	// Build content with split panels
-	content := s.renderPanels()
 
 	// Build status/footer with input prompt if in input mode
 	var statusText string
@@ -219,48 +219,70 @@ func (s *SCPManager) View() string {
 		statusText = scpStatusStyle.Width(s.width).Render(s.status)
 	}
 
+	// Calculate remaining height for content panels
+	// 2 lines for header + 1 line filter + 2 line for footer = 5 lines reserved
+	contentHeight := max(s.height-5, 0)
+
+	// Build content with split panels
+	content := s.renderPanels(contentHeight)
+
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, statusText)
 }
 
 // renderPanels renders the split panel view
-func (s *SCPManager) renderPanels() string {
+func (s *SCPManager) renderPanels(availableHeight int) string {
 	if s.loading {
-		return "\n  Connecting to remote server...\n"
+		return lipgloss.NewStyle().
+			Height(availableHeight).
+			Width(s.width).
+			Align(lipgloss.Center, lipgloss.Center).
+			Render("Connecting to remote server...")
 	}
 
 	// Calculate panel dimensions
-	panelWidth := (s.width / 2) - 4
-	panelHeight := s.height - 6 // Reserve space for header, footer, borders
+	// Width: Split in half, minus border spacing (approx 2 chars for borders/padding)
+	panelWidth := max((s.width/2)-2, 10)
+
+	// Height: available height minus borders (5 lines for top/bottom borders)
+	panelHeight := max(availableHeight-5, 0)
 
 	// Render local panel
 	localTitle := "Local: " + s.localPanel.Path
 	localContent := s.renderPanelContent(&s.localPanel, panelHeight)
 
 	var localPanel string
+	localStyle := scpPanelStyle
 	if s.activePanel == 0 {
-		localPanel = scpActivePanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, localTitle, "", localContent),
-		)
-	} else {
-		localPanel = scpPanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, localTitle, "", localContent),
-		)
+		localStyle = scpActivePanelStyle
 	}
+
+	localPanel = localStyle.
+		Width(panelWidth).
+		Height(availableHeight - 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Width(panelWidth).Render(localTitle),
+			"",
+			localContent,
+		))
 
 	// Render remote panel
 	remoteTitle := "Remote: " + s.remotePanel.Path
 	remoteContent := s.renderPanelContent(&s.remotePanel, panelHeight)
 
 	var remotePanel string
+	remoteStyle := scpPanelStyle
 	if s.activePanel == 1 {
-		remotePanel = scpActivePanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, remoteTitle, "", remoteContent),
-		)
-	} else {
-		remotePanel = scpPanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, remoteTitle, "", remoteContent),
-		)
+		remoteStyle = scpActivePanelStyle
 	}
+
+	remotePanel = remoteStyle.
+		Width(panelWidth).
+		Height(availableHeight - 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Width(panelWidth).Render(remoteTitle),
+			"",
+			remoteContent,
+		))
 
 	// Join panels horizontally
 	return lipgloss.JoinHorizontal(lipgloss.Top, localPanel, remotePanel)
@@ -270,6 +292,14 @@ func (s *SCPManager) renderPanels() string {
 func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
 	if len(panel.Files) == 0 {
 		return "  (empty directory)"
+	}
+
+	// Adjust scrolling to ensure selection is visible
+	if panel.SelectedIdx < panel.ScrollOffset {
+		panel.ScrollOffset = panel.SelectedIdx
+	}
+	if panel.SelectedIdx >= panel.ScrollOffset+maxHeight {
+		panel.ScrollOffset = panel.SelectedIdx - maxHeight + 1
 	}
 
 	var lines []string
@@ -299,6 +329,12 @@ func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
 		}
 
 		lines = append(lines, line)
+	}
+
+	// Fill remaining lines with empty space to maintain height consistency
+	remainingLines := maxHeight - len(lines)
+	if remainingLines > 0 {
+		lines = append(lines, strings.Repeat("\n", remainingLines))
 	}
 
 	return strings.Join(lines, "\n")
@@ -431,10 +467,7 @@ func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		panel := s.getActivePanel()
 		if panel.SelectedIdx > 0 {
 			panel.SelectedIdx--
-			// Auto-scroll
-			if panel.SelectedIdx < panel.ScrollOffset {
-				panel.ScrollOffset = panel.SelectedIdx
-			}
+			// Auto-scroll logic handled in view
 		}
 		return s, nil
 
@@ -442,11 +475,7 @@ func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		panel := s.getActivePanel()
 		if panel.SelectedIdx < len(panel.Files)-1 {
 			panel.SelectedIdx++
-			// Auto-scroll
-			maxVisible := s.height - 8
-			if panel.SelectedIdx >= panel.ScrollOffset+maxVisible {
-				panel.ScrollOffset = panel.SelectedIdx - maxVisible + 1
-			}
+			// Auto-scroll logic handled in view
 		}
 		return s, nil
 
@@ -971,9 +1000,16 @@ func (s *SCPManager) connectSFTP() tea.Cmd {
 	return func() tea.Msg {
 		client, err := ssh.NewSFTPClient(s.connection)
 		if err != nil {
-			return SCPConnectionMsg{nil, err}
+			return SCPConnectionMsg{nil, "", err}
 		}
-		return SCPConnectionMsg{client, nil}
+
+		// Fetch remote WD
+		wd, err := client.GetWorkingDir()
+		if err != nil {
+			wd = "." // Fallback
+		}
+
+		return SCPConnectionMsg{client, wd, nil}
 	}
 }
 

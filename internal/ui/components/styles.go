@@ -137,24 +137,6 @@ var (
 // --- Re-export aliases for backward compatibility ---
 
 var (
-	// Bitwarden specific aliases mapped to generic styles
-	bwTitleStyle       = sectionTitleStyle
-	bwConfigTitleStyle = sectionTitleStyle
-	bwUnlockTitleStyle = sectionTitleStyle
-
-	bwFormStyle       = containerStyle
-	bwConfigFormStyle = containerStyle
-	bwUnlockFormStyle = containerStyle
-
-	bwFocusedStyle  = focusedStyle
-	bwBlurredStyle  = blurredStyle
-	bwFocusedButton = focusedButton
-	bwBlurredButton = blurredButton
-
-	// Storage selection aliases
-	storageSelectStyle      = containerStyle
-	storageSelectTitleStyle = sectionTitleStyle
-
 	// Generic Form aliases
 	formStyle      = containerStyle
 	formTitleStyle = sectionTitleStyle

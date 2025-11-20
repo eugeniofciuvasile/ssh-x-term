@@ -59,6 +59,14 @@ func NewSFTPClient(connConfig config.SSHConnection) (*SFTPClient, error) {
 	}, nil
 }
 
+// GetWorkingDir returns the current working directory of the SFTP connection
+func (s *SFTPClient) GetWorkingDir() (string, error) {
+	if s.sftpClient == nil {
+		return "", fmt.Errorf("SFTP client not connected")
+	}
+	return s.sftpClient.Getwd()
+}
+
 // Close closes the SFTP and SSH connections
 func (s *SFTPClient) Close() error {
 	var err error
