@@ -13,6 +13,10 @@ import (
 
 type ToggleOpenInNewTerminalMsg struct{}
 
+type DeleteConnectionMsg struct {
+	Connection config.SSHConnection
+}
+
 type connectionItem struct {
 	connection config.SSHConnection
 }
@@ -95,6 +99,11 @@ type ConnectionList struct {
 	highlightedConn   *config.SSHConnection
 	openInNewTerminal bool
 
+	// Delete confirmation dialog
+	showDeleteConfirm bool
+	deleteConfirm     *DeleteConfirmation
+	pendingDelete     *config.SSHConnection
+
 	// layout stores the current column widths for header rendering
 	layout connectionDelegate
 }
@@ -141,12 +150,41 @@ func (cl *ConnectionList) Init() tea.Cmd { return nil }
 func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// If delete confirmation is showing, delegate to it
+	if cl.showDeleteConfirm && cl.deleteConfirm != nil {
+		var confirmModel tea.Model
+		confirmModel, cmd = cl.deleteConfirm.Update(msg)
+		cl.deleteConfirm = confirmModel.(*DeleteConfirmation)
+
+		// Check if user confirmed or canceled
+		if cl.deleteConfirm.IsConfirmed() {
+			// User confirmed - send delete message
+			cl.showDeleteConfirm = false
+			if cl.pendingDelete != nil {
+				deleteMsg := DeleteConnectionMsg{Connection: *cl.pendingDelete}
+				cl.pendingDelete = nil
+				return cl, func() tea.Msg { return deleteMsg }
+			}
+		} else if cl.deleteConfirm.IsCanceled() {
+			// User canceled - close dialog
+			cl.showDeleteConfirm = false
+			cl.pendingDelete = nil
+			cl.deleteConfirm = nil
+		}
+
+		return cl, cmd
+	}
+
 	switch msg := msg.(type) {
 	case ToggleOpenInNewTerminalMsg:
 		return cl, nil
 
 	case tea.WindowSizeMsg:
 		cl.SetSize(msg.Width, msg.Height)
+		// Also update delete confirmation if it exists
+		if cl.deleteConfirm != nil {
+			cl.deleteConfirm.SetSize(msg.Width, msg.Height)
+		}
 		return cl, nil
 
 	case tea.KeyMsg:
@@ -163,6 +201,15 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cl.selectedConn = &connItem.connection
 					return cl, nil
 				}
+			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("d", "D"))):
+			// Show delete confirmation for highlighted connection
+			if cl.highlightedConn != nil {
+				cl.pendingDelete = cl.highlightedConn
+				cl.deleteConfirm = NewDeleteConfirmation(cl.highlightedConn.Name)
+				cl.deleteConfirm.SetSize(cl.list.Width(), cl.list.Height())
+				cl.showDeleteConfirm = true
+				return cl, nil
 			}
 		}
 	}
@@ -199,10 +246,28 @@ func (cl *ConnectionList) View() string {
 		),
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	listView := lipgloss.JoinVertical(lipgloss.Left,
 		headers,
 		cl.list.View(),
 	)
+
+	// If delete confirmation is showing, overlay it on top
+	if cl.showDeleteConfirm && cl.deleteConfirm != nil {
+		// Render the list view as background, then overlay the confirmation dialog
+		confirmView := cl.deleteConfirm.View()
+		// Use Place to overlay the confirmation on top of the list
+		return lipgloss.Place(
+			cl.list.Width(),
+			cl.list.Height(),
+			lipgloss.Center,
+			lipgloss.Center,
+			confirmView,
+			lipgloss.WithWhitespaceChars(" "),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color("0")),
+		)
+	}
+
+	return listView
 }
 
 func (cl *ConnectionList) SelectedConnection() *config.SSHConnection { return cl.selectedConn }
@@ -213,6 +278,10 @@ func (cl *ConnectionList) OpenInNewTerminal() bool { return cl.openInNewTerminal
 
 func (cl *ConnectionList) ToggleOpenInNewTerminal() {
 	cl.openInNewTerminal = !cl.openInNewTerminal
+}
+
+func (cl *ConnectionList) IsShowingDeleteConfirm() bool {
+	return cl.showDeleteConfirm
 }
 
 func (cl *ConnectionList) SetConnections(connections []config.SSHConnection) {

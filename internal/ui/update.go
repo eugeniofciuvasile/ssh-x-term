@@ -149,6 +149,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner.Tick,
 		)
 
+	case components.DeleteConnectionMsg:
+		// User confirmed deletion - delete the connection
+		if m.storageBackend != nil {
+			m.loading = true
+			return m, tea.Batch(
+				deleteConnectionCmd(m.storageBackend, msg.Connection.ID),
+				m.spinner.Tick,
+			)
+		}
+		return m, nil
+
 	case LoadConnectionsFinishedMsg:
 		m.loading = false // finally stop the spinner here
 		if msg.Err != nil {
@@ -239,6 +250,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case StateConnectionList:
 			if m.connectionList != nil {
+				// If delete confirmation is showing, pass ALL keys to connectionList
+				if m.connectionList.IsShowingDeleteConfirm() {
+					model, cmd := m.connectionList.Update(msg)
+					m.connectionList = model.(*components.ConnectionList)
+					return m, cmd
+				}
+				
 				listModel := m.connectionList.List()
 				if listModel != nil && listModel.FilterState() == list.Filtering {
 					newList, cmd := listModel.Update(msg)
@@ -268,14 +286,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.state = StateEditConnection
 						return m, m.connectionForm.Init()
 					}
-				case msg.String() == "d":
-					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil && m.storageBackend != nil {
-						m.loading = true
-						return m, tea.Batch(
-							deleteConnectionCmd(m.storageBackend, selectedItem.ID),
-							m.spinner.Tick,
-						)
-					}
+				case msg.String() == "d" || msg.String() == "D":
+					// Pass to connectionList for delete confirmation handling
+					model, cmd := m.connectionList.Update(msg)
+					m.connectionList = model.(*components.ConnectionList)
+					return m, cmd
 				case msg.String() == "s":
 					// Open SCP file manager
 					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil {
