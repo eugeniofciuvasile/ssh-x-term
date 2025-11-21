@@ -32,9 +32,9 @@ type Client struct {
 
 // NewClient creates a new SSH client from a connection configuration
 func NewClient(connConfig config.SSHConnection) (*Client, error) {
-	log.Printf("[NewClient] Starting connection for user=%s host=%s port=%d usePassword=%v keyFile=%q",
-		connConfig.Username, connConfig.Host, connConfig.Port, connConfig.UsePassword, connConfig.KeyFile)
-	
+	log.Printf("[NewClient] Starting connection for user=%s host=%s port=%d keyFile=%q",
+		connConfig.Username, connConfig.Host, connConfig.Port, connConfig.KeyFile)
+
 	// If password-based authentication is enabled, retrieve the password from the keyring
 	if connConfig.UsePassword && connConfig.Password == "" {
 		password, err := keyring.Get(keyringService, connConfig.ID)
@@ -62,7 +62,7 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 
 	// 2. Identity File (Key File) Support
 	keyFile := connConfig.KeyFile
-	
+
 	// Expand tilde in key file path
 	if keyFile != "" && keyFile[0] == '~' {
 		homeDir, err := os.UserHomeDir()
@@ -70,7 +70,7 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 			keyFile = filepath.Join(homeDir, keyFile[2:]) // Skip "~/"
 		}
 	}
-	
+
 	// If no key file specified and not using password, try default key location
 	if keyFile == "" && !connConfig.UsePassword {
 		homeDir, err := os.UserHomeDir()
