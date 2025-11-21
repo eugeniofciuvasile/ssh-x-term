@@ -100,7 +100,8 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 						signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(connConfig.Password))
 						if err != nil {
 							log.Printf("[NewClient] Failed to parse encrypted key with provided passphrase: %v", err)
-							return nil, fmt.Errorf("incorrect passphrase for key %s", keyFile)
+							// Return PassphraseRequiredError so UI can prompt for correct passphrase
+							return nil, &PassphraseRequiredError{KeyFile: keyFile}
 						}
 						log.Printf("[NewClient] Successfully parsed key with passphrase")
 					} else {

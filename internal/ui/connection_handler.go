@@ -43,6 +43,15 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 		m.errorMessage = fmt.Sprintf("Failed to write key file: %s", err)
 		return nil
 	}
+	
+	// Update connection's KeyFile to point to the xterm_keys path if we created one
+	if keyPath != "" {
+		conn.KeyFile = keyPath
+		// Clear Password field since it contained the key content, not a passphrase
+		// If a passphrase is needed, the SSH client will trigger the passphrase form
+		conn.Password = ""
+	}
+	
 	sshArgs := m.prepareSSHArgs(conn, keyPath)
 	userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
 
