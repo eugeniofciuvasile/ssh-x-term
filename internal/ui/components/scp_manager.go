@@ -783,6 +783,7 @@ func (s *SCPManager) recursiveSearchDir(basePath, query, relativePath string) {
 	}
 
 	if err != nil {
+		// Silently skip directories that cannot be accessed during search
 		return
 	}
 
@@ -798,10 +799,14 @@ func (s *SCPManager) recursiveSearchDir(basePath, query, relativePath string) {
 		if s.fuzzyMatch(query, strings.ToLower(file.Name)) {
 			// Create a new FileInfo with relative path in name for display
 			displayFile := ssh.FileInfo{
-				Name:  fullRelPath,
-				Size:  file.Size,
-				IsDir: file.IsDir,
-				Mode:  file.Mode,
+				Name:    fullRelPath,
+				Size:    file.Size,
+				IsDir:   file.IsDir,
+				Mode:    file.Mode,
+				ModTime: file.ModTime,
+				Perm:    file.Perm,
+				Owner:   file.Owner,
+				Group:   file.Group,
 			}
 			s.recursiveResults = append(s.recursiveResults, displayFile)
 		}
@@ -852,7 +857,7 @@ func (s *SCPManager) executeSearch() (tea.Model, tea.Cmd) {
 // executeCreateFile creates a new file or directory structure
 func (s *SCPManager) executeCreateFile() (tea.Model, tea.Cmd) {
 	if s.inputBuffer == "" {
-		s.status = "File name cannot be empty"
+		s.error = "File name cannot be empty"
 		s.inputMode = ModeNormal
 		return s, nil
 	}
@@ -874,7 +879,6 @@ func (s *SCPManager) executeCreateFile() (tea.Model, tea.Cmd) {
 
 			if s.activePanel == 0 {
 				// Local file system
-				// Create directories if they don't exist
 				err = s.createLocalDirAndFile(dir, fullPath)
 			} else {
 				// Remote file system
@@ -917,14 +921,14 @@ func (s *SCPManager) executeCreateFile() (tea.Model, tea.Cmd) {
 // executeRename renames the selected file or directory
 func (s *SCPManager) executeRename() (tea.Model, tea.Cmd) {
 	if s.inputBuffer == "" {
-		s.status = "New name cannot be empty"
+		s.error = "New name cannot be empty"
 		s.inputMode = ModeNormal
 		return s, nil
 	}
 
 	panel := s.getActivePanel()
 	if panel.SelectedIdx < 0 || panel.SelectedIdx >= len(panel.Files) {
-		s.status = "No file selected"
+		s.error = "No file selected"
 		s.inputMode = ModeNormal
 		return s, nil
 	}
@@ -1014,7 +1018,7 @@ func (s *SCPManager) handleDeleteConfirmation(msg tea.KeyMsg) (tea.Model, tea.Cm
 // executeChangeDir changes to the specified directory
 func (s *SCPManager) executeChangeDir() (tea.Model, tea.Cmd) {
 	if s.inputBuffer == "" {
-		s.status = "Path cannot be empty"
+		s.error = "Path cannot be empty"
 		s.inputMode = ModeNormal
 		return s, nil
 	}
@@ -1027,18 +1031,40 @@ func (s *SCPManager) executeChangeDir() (tea.Model, tea.Cmd) {
 		// If relative path, make it absolute from current directory
 		newPath = filepath.Join(panel.Path, newPath)
 	}
+	newPath = filepath.Clean(newPath)
 
 	s.inputMode = ModeNormal
 	s.inputBuffer = ""
-	panel.Path = filepath.Clean(newPath)
-	panel.SelectedIdx = 0
-	panel.ScrollOffset = 0
+	s.operationInProgress = true
+	s.status = "Changing directory..."
 
-	// List files in the new directory
-	if s.activePanel == 0 {
-		return s, s.listLocalFiles()
+	// Validate directory exists before changing
+	return s, func() tea.Msg {
+		var files []ssh.FileInfo
+		var err error
+
+		if s.activePanel == 0 {
+			files, err = ssh.ListLocalFiles(newPath)
+		} else {
+			if s.sftpClient == nil {
+				return SCPListFilesMsg{IsLocal: s.activePanel == 0, Err: fmt.Errorf("not connected")}
+			}
+			files, err = s.sftpClient.ListFiles(newPath)
+		}
+
+		if err != nil {
+			s.operationInProgress = false
+			return SCPOperationMsg{Operation: "Change directory", Success: false, Err: fmt.Errorf("directory does not exist or is inaccessible")}
+		}
+
+		// Directory is valid, update panel
+		panel.Path = newPath
+		panel.SelectedIdx = 0
+		panel.ScrollOffset = 0
+		s.operationInProgress = false
+
+		return SCPListFilesMsg{IsLocal: s.activePanel == 0, Files: files, Path: newPath}
 	}
-	return s, s.listRemoteFiles()
 }
 
 // createLocalDirAndFile creates directory structure and file locally
@@ -1113,45 +1139,93 @@ func (s *SCPManager) enterDirectory() tea.Cmd {
 	}
 
 	newPath := filepath.Join(panel.Path, file.Name)
-	panel.Path = newPath
-	panel.SelectedIdx = 0
-	panel.ScrollOffset = 0
+	
+	s.operationInProgress = true
+	s.status = "Entering directory..."
 
-	if s.activePanel == 0 {
-		return s.listLocalFiles()
+	return func() tea.Msg {
+		var files []ssh.FileInfo
+		var err error
+
+		if s.activePanel == 0 {
+			files, err = ssh.ListLocalFiles(newPath)
+		} else {
+			if s.sftpClient == nil {
+				s.operationInProgress = false
+				return SCPOperationMsg{Operation: "Enter directory", Success: false, Err: fmt.Errorf("not connected")}
+			}
+			files, err = s.sftpClient.ListFiles(newPath)
+		}
+
+		if err != nil {
+			s.operationInProgress = false
+			return SCPOperationMsg{Operation: "Enter directory", Success: false, Err: fmt.Errorf("cannot access directory: %w", err)}
+		}
+
+		// Update panel path
+		panel.Path = newPath
+		panel.SelectedIdx = 0
+		panel.ScrollOffset = 0
+		s.operationInProgress = false
+
+		return SCPListFilesMsg{IsLocal: s.activePanel == 0, Files: files, Path: newPath}
 	}
-	return s.listRemoteFiles()
 }
 
 func (s *SCPManager) goUpDirectory() tea.Cmd {
 	panel := s.getActivePanel()
 	parent := filepath.Dir(panel.Path)
 	if parent == panel.Path {
-		return nil // Already at root
+		s.error = "Already at root directory"
+		return nil
 	}
 
-	panel.Path = parent
-	panel.SelectedIdx = 0
-	panel.ScrollOffset = 0
+	s.operationInProgress = true
+	s.status = "Going up directory..."
 
-	if s.activePanel == 0 {
-		return s.listLocalFiles()
+	return func() tea.Msg {
+		var files []ssh.FileInfo
+		var err error
+
+		if s.activePanel == 0 {
+			files, err = ssh.ListLocalFiles(parent)
+		} else {
+			if s.sftpClient == nil {
+				s.operationInProgress = false
+				return SCPOperationMsg{Operation: "Go up directory", Success: false, Err: fmt.Errorf("not connected")}
+			}
+			files, err = s.sftpClient.ListFiles(parent)
+		}
+
+		if err != nil {
+			s.operationInProgress = false
+			return SCPOperationMsg{Operation: "Go up directory", Success: false, Err: fmt.Errorf("cannot access parent directory: %w", err)}
+		}
+
+		// Update panel path
+		panel.Path = parent
+		panel.SelectedIdx = 0
+		panel.ScrollOffset = 0
+		s.operationInProgress = false
+
+		return SCPListFilesMsg{IsLocal: s.activePanel == 0, Files: files, Path: parent}
 	}
-	return s.listRemoteFiles()
 }
 
 func (s *SCPManager) downloadFile() tea.Cmd {
 	if s.sftpClient == nil {
+		s.error = "Not connected to remote server"
 		return nil
 	}
 
 	if s.remotePanel.SelectedIdx >= len(s.remotePanel.Files) {
+		s.error = "No file selected"
 		return nil
 	}
 
 	file := s.remotePanel.Files[s.remotePanel.SelectedIdx]
 	if file.IsDir {
-		s.status = "Cannot download directories (yet)"
+		s.error = "Cannot download directories (yet)"
 		return nil
 	}
 
@@ -1172,16 +1246,18 @@ func (s *SCPManager) downloadFile() tea.Cmd {
 
 func (s *SCPManager) uploadFile() tea.Cmd {
 	if s.sftpClient == nil {
+		s.error = "Not connected to remote server"
 		return nil
 	}
 
 	if s.localPanel.SelectedIdx >= len(s.localPanel.Files) {
+		s.error = "No file selected"
 		return nil
 	}
 
 	file := s.localPanel.Files[s.localPanel.SelectedIdx]
 	if file.IsDir {
-		s.status = "Cannot upload directories (yet)"
+		s.error = "Cannot upload directories (yet)"
 		return nil
 	}
 

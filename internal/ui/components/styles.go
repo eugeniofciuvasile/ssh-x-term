@@ -140,5 +140,4 @@ var (
 	// Generic Form aliases
 	formStyle      = containerStyle
 	formTitleStyle = sectionTitleStyle
-	scpErrorStyle  = errorStyle
 )
