@@ -258,11 +258,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Quit
 				case msg.String() == "a":
 					m.connectionForm = components.NewConnectionForm(nil)
+					m.connectionForm.SetSize(m.width, m.height)
 					m.state = StateAddConnection
 					return m, m.connectionForm.Init()
 				case msg.String() == "e":
 					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil {
 						m.connectionForm = components.NewConnectionForm(selectedItem)
+						m.connectionForm.SetSize(m.width, m.height)
 						m.state = StateEditConnection
 						return m, m.connectionForm.Init()
 					}

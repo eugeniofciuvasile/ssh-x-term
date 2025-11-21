@@ -43,54 +43,38 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	}
 
 	// Create text inputs
+	// 0: Name, 1: Host, 2: Port, 3: User, 4: Pass, 5: Key, 6: ID
 	inputs = make([]textinput.Model, 7)
 
-	// Name input
-	inputs[0] = textinput.New()
-	inputs[0].Placeholder = "Connection Name"
-	inputs[0].Focus()
-	inputs[0].Width = 40
-	inputs[0].Prompt = focusedStyle.Render("> ")
+	// Helper to init standard inputs
+	initInput := func(i int, placeholder string, width int) {
+		inputs[i] = textinput.New()
+		inputs[i].Placeholder = placeholder
+		inputs[i].Width = width
+		inputs[i].Prompt = "> "
+		inputs[i].PromptStyle = blurredStyle
+		inputs[i].TextStyle = blurredStyle
+	}
+
+	initInput(0, "Connection Name", 40)
+	inputs[0].Focus() // Focus first input initially
 	inputs[0].PromptStyle = focusedStyle
 	inputs[0].TextStyle = focusedStyle
 
-	// Host input
-	inputs[1] = textinput.New()
-	inputs[1].Placeholder = "Hostname or IP"
-	inputs[1].Width = 40
-	inputs[1].Prompt = "> "
-
-	// Port input
-	inputs[2] = textinput.New()
-	inputs[2].Placeholder = "Port (default: 22)"
-	inputs[2].Width = 40
-	inputs[2].Prompt = "> "
-
-	// Username input
-	inputs[3] = textinput.New()
-	inputs[3].Placeholder = "Username"
-	inputs[3].Width = 30
-	inputs[3].Prompt = "> "
+	initInput(1, "Hostname or IP", 40)
+	initInput(2, "Port (default: 22)", 40)
+	initInput(3, "Username", 30)
 
 	// Password input
-	inputs[4] = textinput.New()
-	inputs[4].Placeholder = "Password"
-	inputs[4].Width = 40
-	inputs[4].Prompt = "> "
+	initInput(4, "Password", 40)
 	inputs[4].EchoMode = textinput.EchoPassword
 	inputs[4].EchoCharacter = '•'
 
 	// Key file input
-	inputs[5] = textinput.New()
-	inputs[5].Placeholder = "Path to SSH key (example: ~/.ssh/id_rsa)"
-	inputs[5].Width = 60
-	inputs[5].Prompt = "> "
+	initInput(5, "Path to SSH key (example: ~/.ssh/id_rsa)", 50)
 
-	// ID input (hidden, used as identifier)
-	inputs[6] = textinput.New()
-	inputs[6].Placeholder = "ID (auto-generated)"
-	inputs[6].Width = 40
-	inputs[6].Prompt = "> "
+	// ID input (hidden from view, used as identifier)
+	initInput(6, "ID (auto-generated)", 40)
 
 	// If editing, fill the fields
 	if editing {
@@ -123,8 +107,7 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -133,31 +116,52 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "tab", "shift+tab", "up", "down":
-			// Cycle through inputs
+			// Calculate move direction
+			step := 1
 			if msg.String() == "shift+tab" || msg.String() == "up" {
-				m.focusIndex--
-				if m.focusIndex == 5 && m.usePassword {
-					m.focusIndex--
-				} else if m.focusIndex == 4 && !m.usePassword {
-					m.focusIndex--
-				}
-			} else {
-				m.focusIndex++
-				if m.focusIndex == 4 && !m.usePassword {
-					m.focusIndex++
-				} else if m.focusIndex == 5 && m.usePassword {
-					m.focusIndex++
-				}
+				step = -1
 			}
 
-			// Wrap around
-			if m.focusIndex > len(m.inputs) {
+			// Move focus
+			m.focusIndex += step
+
+			// Handle skipping logic
+			// Indices: 0=Name, 1=Host, 2=Port, 3=User, 4=Pass, 5=Key, 6=ID(Hidden), 7=SubmitButton
+
+			// Skip Password(4) if using Key
+			if !m.usePassword && m.focusIndex == 4 {
+				m.focusIndex += step
+			}
+			// Skip Key(5) if using Password
+			if m.usePassword && m.focusIndex == 5 {
+				m.focusIndex += step
+			}
+			// Skip ID(6) always
+			if m.focusIndex == 6 {
+				m.focusIndex += step
+			}
+
+			// Handle Wrap-around
+			// Max index is 7 (Submit button)
+			if m.focusIndex > 7 {
 				m.focusIndex = 0
 			} else if m.focusIndex < 0 {
-				m.focusIndex = len(m.inputs)
+				m.focusIndex = 7
 			}
 
-			// Update input styles
+			// Re-check skip logic after wrap-around (e.g. going backwards from 0 to 7, then hitting 6)
+			if m.focusIndex == 6 {
+				m.focusIndex += step
+			}
+			// Re-check auth fields after wrap/skip
+			if m.usePassword && m.focusIndex == 5 {
+				m.focusIndex += step
+			}
+			if !m.usePassword && m.focusIndex == 4 {
+				m.focusIndex += step
+			}
+
+			// Apply Focus/Blur Styles
 			for i := 0; i < len(m.inputs); i++ {
 				if i == m.focusIndex {
 					cmds = append(cmds, m.inputs[i].Focus())
@@ -165,34 +169,45 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.inputs[i].TextStyle = focusedStyle
 				} else {
 					m.inputs[i].Blur()
-					m.inputs[i].PromptStyle = noStyle
-					m.inputs[i].TextStyle = noStyle
+					m.inputs[i].PromptStyle = blurredStyle
+					m.inputs[i].TextStyle = blurredStyle
 				}
 			}
 
 		case "enter":
-			if m.focusIndex == len(m.inputs) {
-				// Submit button
+			// Check if we are at the submit button (index 7) OR submitting from a field
+			if m.focusIndex == 7 {
 				if valid, err := m.validateForm(); valid {
 					m.updateConnection()
 					m.submitted = true
 				} else {
 					m.errorMessage = err
 				}
+			} else {
+				// Move to next field on enter, unless it's the last visible field, then submit?
+				// For now, standard behavior is just consume enter or move next.
+				// Let's treat it like tab for fields
+				m.Update(tea.KeyMsg{Type: tea.KeyTab})
+				return m, nil
 			}
 
 		case "ctrl+p":
 			// Toggle between password and key authentication
 			m.usePassword = !m.usePassword
-			if m.usePassword {
-				m.inputs[4].SetValue("")
-			} else {
-				m.inputs[5].SetValue("")
+			// Adjust focus if currently on the toggleable field
+			if m.usePassword && m.focusIndex == 5 {
+				m.focusIndex = 4
+				m.inputs[5].Blur()
+				m.inputs[4].Focus()
+			} else if !m.usePassword && m.focusIndex == 4 {
+				m.focusIndex = 5
+				m.inputs[4].Blur()
+				m.inputs[5].Focus()
 			}
 		}
 	}
 
-	// Handle character input
+	// Handle character input only if a specific input field is focused
 	if m.focusIndex < len(m.inputs) {
 		newInput, cmd := m.inputs[m.focusIndex].Update(msg)
 		m.inputs[m.focusIndex] = newInput
@@ -211,42 +226,79 @@ func (m *ConnectionForm) View() string {
 	if m.editing {
 		title = "Edit SSH Connection"
 	}
-	b.WriteString(formTitleStyle.Render(title))
+	b.WriteString(sectionTitleStyle.Render(title))
 	b.WriteString("\n\n")
 
-	// Render inputs
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Name:", m.inputs[0].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Host:", m.inputs[1].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Port:", m.inputs[2].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Username:", m.inputs[3].View()))
+	// Helper for rendering labels
+	label := func(text string) string {
+		return lipgloss.NewStyle().Foreground(colorSubText).Render(text)
+	}
 
-	// Auth method toggle
+	// Render standard inputs
+	b.WriteString(label("Name") + "\n")
+	b.WriteString(m.inputs[0].View() + "\n\n")
+
+	b.WriteString(label("Host") + "\n")
+	b.WriteString(m.inputs[1].View() + "\n\n")
+
+	b.WriteString(label("Port") + "\n")
+	b.WriteString(m.inputs[2].View() + "\n\n")
+
+	b.WriteString(label("Username") + "\n")
+	b.WriteString(m.inputs[3].View() + "\n\n")
+
+	// Auth method header
 	authMethod := "Using Password Authentication"
 	if !m.usePassword {
 		authMethod = "Using SSH Key Authentication"
 	}
-	b.WriteString(fmt.Sprintf("%s (Ctrl+P to toggle)\n\n", authMethod))
+	authHint := lipgloss.NewStyle().Foreground(colorInactive).Render("(Ctrl+P to toggle)")
+	b.WriteString(fmt.Sprintf("%s %s\n", label(authMethod), authHint))
 
-	// Render password or key file input based on auth method
+	// Render conditional input
 	if m.usePassword {
-		b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Password:", m.inputs[4].View()))
+		b.WriteString(m.inputs[4].View()) // Password
 	} else {
-		b.WriteString(fmt.Sprintf("%s\n%s\n\n", "SSH Key Path:", m.inputs[5].View()))
+		b.WriteString(m.inputs[5].View()) // SSH Key
 	}
+	b.WriteString("\n\n")
 
-	// Render submit button
+	// Render submit button (Index 7)
 	button := blurredButton
-	if m.focusIndex == len(m.inputs) {
+	if m.focusIndex == 7 {
 		button = focusedButton
 	}
-	fmt.Fprintf(&b, "\n%s\n", button)
+	b.WriteString(button)
 
 	// Show error message if any
 	if m.errorMessage != "" {
-		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(m.errorMessage))
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render(m.errorMessage))
 	}
 
-	return formStyle.Render(b.String())
+	// Wrap content in a bordered box (Left aligned content)
+	formBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorPrimary).
+		Padding(1, 3).
+		Width(60).            // Fixed width for the box
+		Align(lipgloss.Left). // Align text inside the box to the left
+		Render(b.String())
+
+	// Center the box on the screen
+	availableHeight := max(m.height-2, 0)
+	return lipgloss.Place(
+		m.width,
+		availableHeight,
+		lipgloss.Center, // Horizontal Center
+		lipgloss.Center, // Vertical Center
+		formBox,
+	)
+}
+
+func (m *ConnectionForm) SetSize(width, height int) {
+	m.width = width
+	m.height = height
 }
 
 // IsCanceled returns whether the form was canceled
