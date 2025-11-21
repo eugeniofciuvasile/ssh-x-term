@@ -2,22 +2,20 @@ package components
 
 import (
 	"fmt"
-	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
-	"time"
+	"io"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-)
-
-var (
-	titleStyle      = lipgloss.NewStyle().MarginLeft(2)
-	paginationStyle = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
-	helpStyle       = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 )
 
 type ToggleOpenInNewTerminalMsg struct{}
+
+type DeleteConnectionMsg struct {
+	Connection config.SSHConnection
+}
 
 type connectionItem struct {
 	connection config.SSHConnection
@@ -25,14 +23,73 @@ type connectionItem struct {
 
 func (i connectionItem) FilterValue() string { return i.connection.Name }
 
-func (i connectionItem) Title() string { return i.connection.Name }
+// connectionDelegate handles the rendering of each list item with dynamic widths
+type connectionDelegate struct {
+	nameWidth int
+	hostWidth int
+	userWidth int
+	portWidth int
+	authWidth int
+}
 
-func (i connectionItem) Description() string {
-	port := ""
-	if i.connection.Port != 22 && i.connection.Port != 0 {
-		port = fmt.Sprintf(":%d", i.connection.Port)
+func (d connectionDelegate) Height() int { return 1 }
+
+func (d connectionDelegate) Spacing() int { return 0 }
+
+func (d connectionDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
+
+func (d connectionDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	i, ok := listItem.(connectionItem)
+	if !ok {
+		return
 	}
-	return fmt.Sprintf("%s@%s%s", i.connection.Username, i.connection.Host, port)
+
+	conn := i.connection
+
+	// Determine Authorization Method string
+	authMethod := "Agent"
+	if conn.UsePassword {
+		authMethod = "Password"
+	} else if conn.KeyFile != "" {
+		authMethod = "Key File"
+	}
+
+	// Format columns using the dynamic widths stored in the delegate
+	name := truncate(conn.Name, d.nameWidth)
+	host := truncate(conn.Host, d.hostWidth)
+	user := truncate(conn.Username, d.userWidth)
+	port := truncate(fmt.Sprintf("%d", conn.Port), d.portWidth)
+	auth := truncate(authMethod, d.authWidth)
+
+	// Render row
+	var style lipgloss.Style
+	if index == m.Index() {
+		style = selectedItemStyle
+	} else {
+		style = itemStyle
+	}
+
+	// Build the row string using Lipgloss for alignment
+	row := lipgloss.JoinHorizontal(lipgloss.Left,
+		lipgloss.NewStyle().Width(d.nameWidth).Render(name),
+		lipgloss.NewStyle().Width(d.hostWidth).Render(host),
+		lipgloss.NewStyle().Width(d.userWidth).Render(user),
+		lipgloss.NewStyle().Width(d.portWidth).Render(port),
+		lipgloss.NewStyle().Width(d.authWidth).Render(auth),
+	)
+
+	fmt.Fprint(w, style.Render(row))
+}
+
+// Helper to truncate strings that are too long
+func truncate(s string, max int) string {
+	if max < 3 {
+		return ""
+	}
+	if len(s) > max-1 {
+		return s[:max-2] + "…"
+	}
+	return s
 }
 
 type ConnectionList struct {
@@ -41,6 +98,14 @@ type ConnectionList struct {
 	selectedConn      *config.SSHConnection
 	highlightedConn   *config.SSHConnection
 	openInNewTerminal bool
+
+	// Delete confirmation dialog
+	showDeleteConfirm bool
+	deleteConfirm     *DeleteConfirmation
+	pendingDelete     *config.SSHConnection
+
+	// layout stores the current column widths for header rendering
+	layout connectionDelegate
 }
 
 func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
@@ -48,44 +113,36 @@ func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 	for i, conn := range connections {
 		items[i] = connectionItem{connection: conn}
 	}
-	l := list.New(items, list.NewDefaultDelegate(), 60, 20)
-	if config.IsTmuxAvailable {
-		l.Title = "SSH Connections - Toggle open in new terminal [x]"
-	} else {
-		l.Title = "SSH Connections - Toggle open in new terminal [ ]"
+
+	// Initial delegate with default widths (will be resized immediately)
+	defaultDelegate := connectionDelegate{
+		nameWidth: 20, hostWidth: 20, userWidth: 15, portWidth: 8, authWidth: 10,
 	}
+
+	l := list.New(items, defaultDelegate, 80, 20)
+	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
-	l.Styles.Title = titleStyle
+	l.SetShowHelp(false)
 	l.Styles.PaginationStyle = paginationStyle
-	l.Styles.HelpStyle = helpStyle
-
-	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{
-			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add connection")),
-			key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
-			key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete connection")),
-			key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "toggle open in new terminal")),
-		}
-	}
 
 	var highlighted *config.SSHConnection
 	if len(connections) > 0 {
 		highlighted = &connections[0]
 	}
 
-	return &ConnectionList{
+	cl := &ConnectionList{
 		list:              l,
 		connections:       connections,
 		highlightedConn:   highlighted,
 		openInNewTerminal: config.IsTmuxAvailable,
+		layout:            defaultDelegate,
 	}
-}
 
-func sendRefresh() tea.Cmd {
-	return tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
-		return ToggleOpenInNewTerminalMsg{}
-	})
+	// Trigger an initial layout calculation
+	cl.SetSize(80, 20)
+
+	return cl
 }
 
 func (cl *ConnectionList) Init() tea.Cmd { return nil }
@@ -93,12 +150,41 @@ func (cl *ConnectionList) Init() tea.Cmd { return nil }
 func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// If delete confirmation is showing, delegate to it
+	if cl.showDeleteConfirm && cl.deleteConfirm != nil {
+		var confirmModel tea.Model
+		confirmModel, cmd = cl.deleteConfirm.Update(msg)
+		cl.deleteConfirm = confirmModel.(*DeleteConfirmation)
+
+		// Check if user confirmed or canceled
+		if cl.deleteConfirm.IsConfirmed() {
+			// User confirmed - send delete message
+			cl.showDeleteConfirm = false
+			if cl.pendingDelete != nil {
+				deleteMsg := DeleteConnectionMsg{Connection: *cl.pendingDelete}
+				cl.pendingDelete = nil
+				return cl, func() tea.Msg { return deleteMsg }
+			}
+		} else if cl.deleteConfirm.IsCanceled() {
+			// User canceled - close dialog
+			cl.showDeleteConfirm = false
+			cl.pendingDelete = nil
+			cl.deleteConfirm = nil
+		}
+
+		return cl, cmd
+	}
+
 	switch msg := msg.(type) {
 	case ToggleOpenInNewTerminalMsg:
 		return cl, nil
 
 	case tea.WindowSizeMsg:
 		cl.SetSize(msg.Width, msg.Height)
+		// Also update delete confirmation if it exists
+		if cl.deleteConfirm != nil {
+			cl.deleteConfirm.SetSize(msg.Width, msg.Height)
+		}
 		return cl, nil
 
 	case tea.KeyMsg:
@@ -116,16 +202,15 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return cl, nil
 				}
 			}
-		case msg.String() == "o":
-			cl.openInNewTerminal = !cl.openInNewTerminal
-
-			checkboxStr := "[ ]"
-			if cl.openInNewTerminal {
-				checkboxStr = "[x]"
+		case key.Matches(msg, key.NewBinding(key.WithKeys("d", "D"))):
+			// Show delete confirmation for highlighted connection
+			if cl.highlightedConn != nil {
+				cl.pendingDelete = cl.highlightedConn
+				cl.deleteConfirm = NewDeleteConfirmation(cl.highlightedConn.Name)
+				cl.deleteConfirm.SetSize(cl.list.Width(), cl.list.Height())
+				cl.showDeleteConfirm = true
+				return cl, nil
 			}
-			cl.list.Title = fmt.Sprintf("SSH Connections - Toggle open in new terminal %s", checkboxStr)
-
-			return cl, sendRefresh()
 		}
 	}
 
@@ -143,26 +228,60 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (cl *ConnectionList) View() string {
 	if len(cl.connections) == 0 {
-		return fmt.Sprintf("\n%s\n\n  No connections found. Press 'a' to add a connection.\n\n", titleStyle.Render("SSH Connections"))
+		// Simplified message since global title handles context
+		return "\n\n  No connections found. Press 'a' to add a connection.\n\n"
 	}
-	return cl.list.View()
+
+	// Note: We no longer render the Title here because the main UI View() handles it.
+	// We only render the Table Headers and the List itself.
+
+	// Construct Table Headers using the DYNAMIC layout widths
+	headers := lipgloss.NewStyle().PaddingLeft(2).Render(
+		lipgloss.JoinHorizontal(lipgloss.Left,
+			headerStyle.Width(cl.layout.nameWidth).Render("Name"),
+			headerStyle.Width(cl.layout.hostWidth).Render("Host"),
+			headerStyle.Width(cl.layout.userWidth).Render("User"),
+			headerStyle.Width(cl.layout.portWidth).Render("Port"),
+			headerStyle.Width(cl.layout.authWidth).Render("Auth Method"),
+		),
+	)
+
+	listView := lipgloss.JoinVertical(lipgloss.Left,
+		headers,
+		cl.list.View(),
+	)
+
+	// If delete confirmation is showing, overlay it on top
+	if cl.showDeleteConfirm && cl.deleteConfirm != nil {
+		// Render the list view as background, then overlay the confirmation dialog
+		confirmView := cl.deleteConfirm.View()
+		// Use Place to overlay the confirmation on top of the list
+		return lipgloss.Place(
+			cl.list.Width(),
+			cl.list.Height(),
+			lipgloss.Center,
+			lipgloss.Center,
+			confirmView,
+			lipgloss.WithWhitespaceChars(" "),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color("0")),
+		)
+	}
+
+	return listView
 }
 
 func (cl *ConnectionList) SelectedConnection() *config.SSHConnection { return cl.selectedConn }
-
 func (cl *ConnectionList) HighlightedConnection() *config.SSHConnection {
 	return cl.highlightedConn
 }
-
 func (cl *ConnectionList) OpenInNewTerminal() bool { return cl.openInNewTerminal }
 
 func (cl *ConnectionList) ToggleOpenInNewTerminal() {
 	cl.openInNewTerminal = !cl.openInNewTerminal
-	checkboxStr := "[ ]"
-	if cl.openInNewTerminal {
-		checkboxStr = "[x]"
-	}
-	cl.list.Title = fmt.Sprintf("SSH Connections - Toggle open in new terminal %s", checkboxStr)
+}
+
+func (cl *ConnectionList) IsShowingDeleteConfirm() bool {
+	return cl.showDeleteConfirm
 }
 
 func (cl *ConnectionList) SetConnections(connections []config.SSHConnection) {
@@ -186,14 +305,67 @@ func (cl *ConnectionList) Reset() {
 	}
 }
 
+// SetSize recalculates the column widths based on available terminal space
 func (cl *ConnectionList) SetSize(width, height int) {
-	if width <= 0 {
-		width = 60
-	}
-	if height <= 0 {
-		height = 20
-	}
+	// Calculate height deduction:
+	// 1. Global Header (managed by parent) -> 1 line
+	// 2. Global Footer (managed by parent) -> 1 line
+	// 3. Table Header (managed here) -> 1 line
+	// Total overhead = 3 lines
+	listHeight := max(height-2, 1)
+	cl.list.SetHeight(listHeight)
 	cl.list.SetWidth(width)
-	// Use full available height for the list
-	cl.list.SetHeight(height)
+
+	// Calculate column widths
+	cl.recalculateTableLayout(width)
+}
+
+func (cl *ConnectionList) recalculateTableLayout(totalWidth int) {
+	// Subtract list padding (default is usually 2 for left padding)
+	availableWidth := max(totalWidth-4, 0)
+
+	// Define fixed or minimum widths
+	const (
+		minPortWidth = 12
+		minAuthWidth = 16
+	)
+
+	// Strategy:
+	// Port and Auth get fixed sizes if space is tight, or small slice of total
+	portW := minPortWidth
+	authW := minAuthWidth
+
+	remaining := availableWidth - portW - authW
+
+	// Distribute remaining space:
+	// Name: 35%, Host: 35%, User: 30%
+	nameW := int(float64(remaining) * 0.35)
+	hostW := int(float64(remaining) * 0.35)
+	userW := remaining - nameW - hostW // Give remainder to user to avoid rounding gaps
+
+	// Ensure minimums
+	if nameW < 10 {
+		nameW = 10
+	}
+	if hostW < 10 {
+		hostW = 10
+	}
+	if userW < 5 {
+		userW = 5
+	}
+
+	// Create new delegate with calculated widths
+	newLayout := connectionDelegate{
+		nameWidth: nameW,
+		hostWidth: hostW,
+		userWidth: userW,
+		portWidth: portW,
+		authWidth: authW,
+	}
+
+	// Store layout for Header rendering
+	cl.layout = newLayout
+
+	// Update the list's delegate so rows render with new widths
+	cl.list.SetDelegate(newLayout)
 }

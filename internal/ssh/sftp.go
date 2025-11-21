@@ -1,12 +1,16 @@
 package ssh
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"syscall"
+	"time"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"github.com/pkg/sftp"
@@ -14,12 +18,16 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// FileInfo represents a file or directory
+// FileInfo represents a file or directory with extended metadata
 type FileInfo struct {
-	Name  string
-	Size  int64
-	IsDir bool
-	Mode  string
+	Name    string
+	Size    int64
+	IsDir   bool
+	Mode    string
+	ModTime time.Time // Modification time
+	Perm    string    // Permission string (e.g. drwxr-xr-x)
+	Owner   string    // UID or Owner Name
+	Group   string    // GID or Group Name
 }
 
 // SFTPClient wraps an SFTP client connection
@@ -43,6 +51,11 @@ func NewSFTPClient(connConfig config.SSHConnection) (*SFTPClient, error) {
 	// Create SSH client first
 	client, err := NewClient(connConfig)
 	if err != nil {
+		// Check if it's a passphrase error - don't wrap it
+		var passphraseErr *PassphraseRequiredError
+		if errors.As(err, &passphraseErr) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to create SSH client: %w", err)
 	}
 
@@ -59,6 +72,14 @@ func NewSFTPClient(connConfig config.SSHConnection) (*SFTPClient, error) {
 	}, nil
 }
 
+// GetWorkingDir returns the current working directory of the SFTP connection
+func (s *SFTPClient) GetWorkingDir() (string, error) {
+	if s.sftpClient == nil {
+		return "", fmt.Errorf("SFTP client not connected")
+	}
+	return s.sftpClient.Getwd()
+}
+
 // Close closes the SFTP and SSH connections
 func (s *SFTPClient) Close() error {
 	var err error
@@ -73,7 +94,7 @@ func (s *SFTPClient) Close() error {
 	return err
 }
 
-// ListFiles lists files in a directory
+// ListFiles lists files in a directory (Remote)
 func (s *SFTPClient) ListFiles(path string) ([]FileInfo, error) {
 	if s.sftpClient == nil {
 		return nil, fmt.Errorf("SFTP client not connected")
@@ -86,23 +107,77 @@ func (s *SFTPClient) ListFiles(path string) ([]FileInfo, error) {
 
 	files := make([]FileInfo, 0, len(entries))
 	for _, entry := range entries {
+		owner, group := getOwnerGroup(entry.Sys())
+
 		files = append(files, FileInfo{
-			Name:  entry.Name(),
-			Size:  entry.Size(),
-			IsDir: entry.IsDir(),
-			Mode:  entry.Mode().String(),
+			Name:    entry.Name(),
+			Size:    entry.Size(),
+			IsDir:   entry.IsDir(),
+			Mode:    entry.Mode().String(),
+			ModTime: entry.ModTime(),
+			Perm:    entry.Mode().String(),
+			Owner:   owner,
+			Group:   group,
 		})
 	}
 
-	// Sort: directories first, then files, alphabetically
+	sortFiles(files)
+	return files, nil
+}
+
+// ListLocalFiles lists files in a local directory
+func ListLocalFiles(path string) ([]FileInfo, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	files := make([]FileInfo, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		owner, group := getOwnerGroup(info.Sys())
+
+		files = append(files, FileInfo{
+			Name:    entry.Name(),
+			Size:    info.Size(),
+			IsDir:   entry.IsDir(),
+			Mode:    info.Mode().String(),
+			ModTime: info.ModTime(),
+			Perm:    info.Mode().String(),
+			Owner:   owner,
+			Group:   group,
+		})
+	}
+
+	sortFiles(files)
+	return files, nil
+}
+
+// sortFiles sorts directories first, then files, alphabetically
+func sortFiles(files []FileInfo) {
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].IsDir != files[j].IsDir {
 			return files[i].IsDir
 		}
 		return files[i].Name < files[j].Name
 	})
+}
 
-	return files, nil
+// getOwnerGroup attempts to extract UID/GID from the file info system interface
+func getOwnerGroup(sys interface{}) (string, string) {
+	// This usually works for Unix/Linux systems (remote SFTP and local Linux/Mac)
+	if stat, ok := sys.(*syscall.Stat_t); ok {
+		return strconv.Itoa(int(stat.Uid)), strconv.Itoa(int(stat.Gid))
+	}
+	// Fallback for sftp.FileStat or systems where syscall.Stat_t isn't available
+	if stat, ok := sys.(*sftp.FileStat); ok {
+		return strconv.Itoa(int(stat.UID)), strconv.Itoa(int(stat.GID))
+	}
+	return "-", "-"
 }
 
 // DownloadFile downloads a file from remote to local
@@ -190,39 +265,6 @@ func (s *SFTPClient) RenameFile(oldPath, newPath string) error {
 	}
 
 	return nil
-}
-
-// ListLocalFiles lists files in a local directory
-func ListLocalFiles(path string) ([]FileInfo, error) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
-	}
-
-	files := make([]FileInfo, 0, len(entries))
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		files = append(files, FileInfo{
-			Name:  entry.Name(),
-			Size:  info.Size(),
-			IsDir: entry.IsDir(),
-			Mode:  info.Mode().String(),
-		})
-	}
-
-	// Sort: directories first, then files, alphabetically
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].IsDir != files[j].IsDir {
-			return files[i].IsDir
-		}
-		return files[i].Name < files[j].Name
-	})
-
-	return files, nil
 }
 
 // CreateLocalFile creates a new empty file locally

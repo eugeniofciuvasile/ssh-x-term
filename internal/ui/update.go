@@ -26,13 +26,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.errorMessage = msg.Err.Error()
 			m.state = StateSelectStorage
+			// Ensure size is set if falling back
+			m.storageSelect.SetSize(m.width, m.height)
 			return m, nil
 		}
 		if !msg.LoggedIn {
 			m.bitwardenForm = components.NewBitwardenConfigForm()
+			m.bitwardenForm.SetSize(m.width, m.height)
 			m.state = StateBitwardenConfig
 		} else if !msg.Unlocked {
 			m.bitwardenUnlockForm = components.NewBitwardenUnlockForm()
+			m.bitwardenUnlockForm.SetSize(m.width, m.height)
 			m.state = StateBitwardenUnlock
 		} else {
 			m.loading = true
@@ -87,6 +91,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.formHasError = true
 			m.bitwardenLoginForm.ResetSubmitted()
 			m.bitwardenLoginForm = components.NewBitwardenLoginForm()
+			m.bitwardenLoginForm.SetSize(m.width, m.height)
 			return m, nil
 		}
 		m.formHasError = false
@@ -109,6 +114,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.formHasError = true
 			m.bitwardenUnlockForm.ResetSubmitted()
 			m.bitwardenUnlockForm = components.NewBitwardenUnlockForm()
+			m.bitwardenUnlockForm.SetSize(m.width, m.height)
 			return m, nil
 		}
 		m.formHasError = false
@@ -143,6 +149,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner.Tick,
 		)
 
+	case components.DeleteConnectionMsg:
+		// User confirmed deletion - delete the connection
+		if m.storageBackend != nil {
+			m.loading = true
+			return m, tea.Batch(
+				deleteConnectionCmd(m.storageBackend, msg.Connection.ID),
+				m.spinner.Tick,
+			)
+		}
+		return m, nil
+
 	case LoadConnectionsFinishedMsg:
 		m.loading = false // finally stop the spinner here
 		if msg.Err != nil {
@@ -154,12 +171,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateConnectionList
 		return m, nil
 
+	case components.SSHPassphraseRequiredMsg:
+		// SSH key requires passphrase - show the passphrase form
+		m.sshPassphraseForm = components.NewSSHPassphraseForm(msg.Connection)
+		m.sshPassphraseForm.SetSize(m.width, m.height)
+
+		switch m.state {
+		case StateSSHTerminal:
+			m.pendingAction = "terminal"
+			m.terminal = nil // Clean up the terminal that couldn't connect
+		case StateSCPFileManager:
+			m.pendingAction = "scp"
+			m.scpManager = nil // Clean up the SCP manager that couldn't connect
+		}
+
+		m.state = StateSSHPassphrase
+		return m, nil
+
 	case components.ToggleOpenInNewTerminalMsg:
 		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Ensure storage select gets resized if it's active (or in background)
+		if m.storageSelect != nil {
+			m.storageSelect.SetSize(msg.Width, msg.Height)
+		}
+
 		if activeComponent := m.getActiveComponent(); activeComponent != nil {
 			// For terminal and SCP manager states, we need to calculate the actual content area
 			// since they need to know the exact dimensions they have to work with
@@ -187,6 +226,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+
 		if m.formHasError {
 			if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
 				switch m.state {
@@ -195,12 +235,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.formHasError = false
 					m.state = StateSelectStorage
 					m.storageSelect = components.NewStorageSelect()
+					m.storageSelect.SetSize(m.width, m.height)
 					return m, m.storageSelect.Init()
 				case StateBitwardenUnlock:
 					m.bitwardenUnlockForm = nil
 					m.formHasError = false
 					m.state = StateSelectStorage
 					m.storageSelect = components.NewStorageSelect()
+					m.storageSelect.SetSize(m.width, m.height)
 					return m, m.storageSelect.Init()
 				}
 			}
@@ -208,6 +250,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case StateConnectionList:
 			if m.connectionList != nil {
+				// If delete confirmation is showing, pass ALL keys to connectionList
+				if m.connectionList.IsShowingDeleteConfirm() {
+					model, cmd := m.connectionList.Update(msg)
+					m.connectionList = model.(*components.ConnectionList)
+					return m, cmd
+				}
+				
 				listModel := m.connectionList.List()
 				if listModel != nil && listModel.FilterState() == list.Filtering {
 					newList, cmd := listModel.Update(msg)
@@ -219,6 +268,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.resetConnectionState()
 					if m.state == StateSelectStorage {
 						m.storageSelect = components.NewStorageSelect()
+						m.storageSelect.SetSize(m.width, m.height)
 						return m, m.storageSelect.Init()
 					}
 					return m, nil
@@ -226,22 +276,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Quit
 				case msg.String() == "a":
 					m.connectionForm = components.NewConnectionForm(nil)
+					m.connectionForm.SetSize(m.width, m.height)
 					m.state = StateAddConnection
 					return m, m.connectionForm.Init()
 				case msg.String() == "e":
 					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil {
 						m.connectionForm = components.NewConnectionForm(selectedItem)
+						m.connectionForm.SetSize(m.width, m.height)
 						m.state = StateEditConnection
 						return m, m.connectionForm.Init()
 					}
-				case msg.String() == "d":
-					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil && m.storageBackend != nil {
-						m.loading = true
-						return m, tea.Batch(
-							deleteConnectionCmd(m.storageBackend, selectedItem.ID),
-							m.spinner.Tick,
-						)
-					}
+				case msg.String() == "d" || msg.String() == "D":
+					// Pass to connectionList for delete confirmation handling
+					model, cmd := m.connectionList.Update(msg)
+					m.connectionList = model.(*components.ConnectionList)
+					return m, cmd
 				case msg.String() == "s":
 					// Open SCP file manager
 					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil {
@@ -291,6 +340,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 					m.resetOrganizationState()
+					m.storageSelect.SetSize(m.width, m.height)
 					return m, m.storageSelect.Init()
 				case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
 					return m, m.loadPersonalVaultConnections()

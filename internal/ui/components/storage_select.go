@@ -12,18 +12,9 @@ const (
 	StorageBitwarden
 )
 
-var (
-	storageSelectStyle = lipgloss.NewStyle().
-				Padding(1, 2)
-
-	storageSelectTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("205")).
-				MarginBottom(1)
-)
-
 type StorageSelect struct {
 	options       []string
+	descriptions  []string
 	selectedIndex int
 	chosen        bool
 	canceled      bool
@@ -33,7 +24,11 @@ type StorageSelect struct {
 
 func NewStorageSelect() *StorageSelect {
 	return &StorageSelect{
-		options: []string{"Local (file)", "Bitwarden"},
+		options: []string{"Local Storage", "Bitwarden"},
+		descriptions: []string{
+			"Local JSON file (no password)",
+			"Sync with Bitwarden vault",
+		},
 	}
 }
 
@@ -49,18 +44,19 @@ func (s *StorageSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "up", "k":
+		// Support Left/Right navigation for the side-by-side layout
+		case "left", "h", "up", "k":
 			if s.selectedIndex > 0 {
 				s.selectedIndex--
 			}
-		case "down", "j":
+		case "right", "l", "down", "j":
 			if s.selectedIndex < len(s.options)-1 {
 				s.selectedIndex++
 			}
 		case "enter":
 			s.chosen = true
 			return s, nil
-		case "esc":
+		case "ctrl+c", "esc":
 			s.canceled = true
 			return s, nil
 		}
@@ -69,25 +65,101 @@ func (s *StorageSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (s *StorageSelect) View() string {
-	var content string
+	// --- Styles specific to this component ---
 
-	// Title
-	content += storageSelectTitleStyle.Render("Choose storage backend:") + "\n\n"
+	// increasing width helps text wrapping, fixing height ensures alignment
+	const (
+		cardWidth  = 34
+		cardHeight = 11
+	)
 
-	// Options
-	for i, opt := range s.options {
-		style := lipgloss.NewStyle()
-		prefix := "  "
+	// Base style for the card content (inner)
+	cardStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Width(cardWidth).
+		Height(cardHeight).
+		Padding(1, 2).
+		Align(lipgloss.Center, lipgloss.Center)
+
+	// Active State (Purple)
+	activeCardStyle := cardStyle.
+		BorderForeground(colorPrimary).
+		Foreground(colorText)
+
+	// Inactive State (Gray)
+	inactiveCardStyle := cardStyle.
+		BorderForeground(colorInactive).
+		Foreground(colorSubText)
+
+	// Text Styles
+	titleStyle := lipgloss.NewStyle().Bold(true).MarginTop(1).MarginBottom(1)
+	descStyle := lipgloss.NewStyle().Foreground(colorSubText).Align(lipgloss.Center)
+
+	// --- Render Cards ---
+
+	var cards []string
+
+	for i, option := range s.options {
+		var currentCardStyle lipgloss.Style
+		var currentTitleStyle lipgloss.Style
+		var symbolColor lipgloss.Color
+		var symbol string
+
 		if i == s.selectedIndex {
-			style = style.Bold(true).Foreground(lipgloss.Color("205"))
-			prefix = "> "
+			currentCardStyle = activeCardStyle
+			currentTitleStyle = titleStyle.Foreground(colorPrimary)
+			symbolColor = colorSecondary // Blue for active icon
+		} else {
+			currentCardStyle = inactiveCardStyle
+			currentTitleStyle = titleStyle.Foreground(colorInactive)
+			symbolColor = colorInactive
 		}
-		content += style.Render(prefix+opt) + "\n"
+
+		if i == 0 { // Local (Box)
+			symbol =
+				`   _______
+  /      /|
+ /______/ |
+ |      | /
+ |______|/`
+		} else { // Secure (Key)
+			symbol =
+				`   .--.
+  /.-. '----------.
+  \'-' .--"--""-"-'
+   '--'
+      `
+		}
+
+		// Apply color to symbol
+		renderedSymbol := lipgloss.NewStyle().Foreground(symbolColor).Render(symbol)
+
+		content := lipgloss.JoinVertical(lipgloss.Center,
+			renderedSymbol,
+			currentTitleStyle.Render(option),
+			descStyle.Render(s.descriptions[i]),
+		)
+
+		cards = append(cards, currentCardStyle.Render(content))
 	}
 
-	content += "\n"
+	// --- Layout ---
 
-	return storageSelectStyle.Render(content)
+	// Join cards horizontally with a larger gap
+	ui := lipgloss.JoinHorizontal(lipgloss.Center,
+		cards[0],
+		"      ", // 6 spaces gap
+		cards[1],
+	)
+
+	// Center vertically and horizontally in the full available space
+	return lipgloss.Place(
+		s.width,
+		s.height-3, // Reserve space for global footer
+		lipgloss.Center,
+		lipgloss.Center,
+		ui,
+	)
 }
 
 func (s *StorageSelect) SelectedBackend() StorageBackend {
@@ -100,4 +172,11 @@ func (s *StorageSelect) IsChosen() bool {
 
 func (s *StorageSelect) IsCanceled() bool {
 	return s.canceled
+}
+
+// SetSize allows the parent model to manually set the dimensions
+// This is crucial when returning to this view without a window resize event
+func (s *StorageSelect) SetSize(width, height int) {
+	s.width = width
+	s.height = height
 }

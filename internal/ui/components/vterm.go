@@ -1118,7 +1118,7 @@ func (vt *VTerminal) renderLine(buf *bytes.Buffer, line []cell, showCursor bool,
 				}
 
 				if len(sgr) > 0 {
-					buf.WriteString(fmt.Sprintf("\x1B[%sm", strings.Join(sgr, ";")))
+					fmt.Fprintf(buf, "\x1B[%sm", strings.Join(sgr, ";"))
 				}
 			}
 

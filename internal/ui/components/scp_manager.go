@@ -1,6 +1,7 @@
 package components
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -10,46 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ssh"
-)
-
-var (
-	scpHeaderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Background(lipgloss.Color("4")).
-			Foreground(lipgloss.Color("255")).
-			Align(lipgloss.Center).
-			Padding(0, 1)
-
-	scpPanelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(1, 2)
-
-	scpActivePanelStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("205")).
-				Padding(1, 2)
-
-	scpFileStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255"))
-
-	scpDirStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
-			Bold(true)
-
-	scpSelectedStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("237")).
-				Foreground(lipgloss.Color("255"))
-
-	scpErrorStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("9")).
-			Padding(0, 2)
-
-	scpStatusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Background(lipgloss.Color("235")).
-			Padding(0, 2)
 )
 
 // Panel represents either local or remote file panel
@@ -76,8 +37,9 @@ type (
 	}
 
 	SCPConnectionMsg struct {
-		Client *ssh.SFTPClient
-		Err    error
+		Client     *ssh.SFTPClient
+		WorkingDir string
+		Err        error
 	}
 )
 
@@ -187,7 +149,14 @@ func (s *SCPManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		s.sftpClient = msg.Client
 		s.status = "Connected"
+		s.remotePanel.Path = msg.WorkingDir
+
 		return s, s.listRemoteFiles()
+
+	case SSHPassphraseRequiredMsg:
+		return s, func() tea.Msg {
+			return msg
+		}
 
 	case SCPListFilesMsg:
 		if msg.Err != nil {
@@ -235,18 +204,26 @@ func (s *SCPManager) View() string {
 
 	// Build header
 	headerText := fmt.Sprintf(
-		"SCP File Manager: %s@%s:%d - %s",
+		"%s@%s:%d - %s",
 		s.connection.Username, s.connection.Host, s.connection.Port, s.connection.Name,
 	)
 	header := scpHeaderStyle.Width(s.width).Render(headerText)
 
-	// Build content with split panels
-	content := s.renderPanels()
-
 	// Build status/footer with input prompt if in input mode
 	var statusText string
+
+	// Styles for status messages
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true) // Green
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)      // Red
+	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))            // Grey/Normal
+
+	// Container style ensures it is centered and full width
+	containerStyle := scpStatusStyle.Width(s.width).Align(lipgloss.Center)
+
 	if s.error != "" {
-		statusText = scpErrorStyle.Render(s.error)
+		// Render Error (Red)
+		msg := errStyle.Render(s.error)
+		statusText = containerStyle.Render(msg)
 		s.error = "" // Clear error after displaying
 	} else if s.inputMode != ModeNormal {
 		// Show input prompt
@@ -254,91 +231,168 @@ func (s *SCPManager) View() string {
 		if s.inputMode == ModeSearch && len(s.searchMatches) > 0 {
 			prompt += fmt.Sprintf(" [%d/%d matches]", s.searchSelectedIdx+1, len(s.searchMatches))
 		}
-		statusText = scpStatusStyle.Width(s.width).Render(prompt)
+		statusText = containerStyle.Render(prompt)
 	} else {
-		statusText = scpStatusStyle.Width(s.width).Render(s.status)
+		// Show Status
+		if strings.Contains(strings.ToLower(s.status), "successfully") {
+			// Render Success (Green)
+			msg := successStyle.Render(s.status)
+			statusText = containerStyle.Render(msg)
+		} else {
+			// Render Normal
+			msg := normalStyle.Render(s.status)
+			statusText = containerStyle.Render(msg)
+		}
 	}
+
+	// Calculate remaining height for content panels
+	// 2 lines for header + 1 line filter + 2 line for footer = 5 lines reserved
+	contentHeight := max(s.height-5, 0)
+
+	// Build content with split panels
+	content := s.renderPanels(contentHeight)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, statusText)
 }
 
 // renderPanels renders the split panel view
-func (s *SCPManager) renderPanels() string {
+func (s *SCPManager) renderPanels(availableHeight int) string {
 	if s.loading {
-		return "\n  Connecting to remote server...\n"
+		return lipgloss.NewStyle().
+			Height(availableHeight).
+			Width(s.width).
+			Align(lipgloss.Center, lipgloss.Center).
+			Render("Connecting to remote server...")
 	}
 
 	// Calculate panel dimensions
-	panelWidth := (s.width / 2) - 4
-	panelHeight := s.height - 6 // Reserve space for header, footer, borders
+	// Width: Split in half, minus border spacing (approx 2 chars for borders/padding)
+	panelWidth := max((s.width/2)-2, 10)
+
+	// Height: available height minus borders (5 lines for top/bottom borders)
+	panelHeight := max(availableHeight-5, 0)
 
 	// Render local panel
 	localTitle := "Local: " + s.localPanel.Path
-	localContent := s.renderPanelContent(&s.localPanel, panelHeight)
+	localContent := s.renderPanelContent(&s.localPanel, panelHeight, panelWidth)
 
 	var localPanel string
+	localStyle := scpPanelStyle
 	if s.activePanel == 0 {
-		localPanel = scpActivePanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, localTitle, "", localContent),
-		)
-	} else {
-		localPanel = scpPanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, localTitle, "", localContent),
-		)
+		localStyle = scpActivePanelStyle
 	}
+
+	localPanel = localStyle.
+		Width(panelWidth).
+		Height(availableHeight - 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Width(panelWidth).Render(localTitle),
+			"",
+			localContent,
+		))
 
 	// Render remote panel
 	remoteTitle := "Remote: " + s.remotePanel.Path
-	remoteContent := s.renderPanelContent(&s.remotePanel, panelHeight)
+	remoteContent := s.renderPanelContent(&s.remotePanel, panelHeight, panelWidth)
 
 	var remotePanel string
+	remoteStyle := scpPanelStyle
 	if s.activePanel == 1 {
-		remotePanel = scpActivePanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, remoteTitle, "", remoteContent),
-		)
-	} else {
-		remotePanel = scpPanelStyle.Width(panelWidth).Render(
-			lipgloss.JoinVertical(lipgloss.Left, remoteTitle, "", remoteContent),
-		)
+		remoteStyle = scpActivePanelStyle
 	}
+
+	remotePanel = remoteStyle.
+		Width(panelWidth).
+		Height(availableHeight - 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Width(panelWidth).Render(remoteTitle),
+			"",
+			remoteContent,
+		))
 
 	// Join panels horizontally
 	return lipgloss.JoinHorizontal(lipgloss.Top, localPanel, remotePanel)
 }
 
 // renderPanelContent renders the file list for a panel
-func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
+func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int, maxWidth int) string {
 	if len(panel.Files) == 0 {
 		return "  (empty directory)"
+	}
+
+	if panel.SelectedIdx < panel.ScrollOffset {
+		panel.ScrollOffset = panel.SelectedIdx
+	}
+	if panel.SelectedIdx >= panel.ScrollOffset+maxHeight {
+		panel.ScrollOffset = panel.SelectedIdx - maxHeight + 1
 	}
 
 	var lines []string
 	visibleStart := panel.ScrollOffset
 	visibleEnd := min(visibleStart+maxHeight, len(panel.Files))
 
+	// Define styles for columns
+	nameStyle := lipgloss.NewStyle()
+	sizeStyle := lipgloss.NewStyle().Width(8).Align(lipgloss.Right).Foreground(colorSubText)
+	dateStyle := lipgloss.NewStyle().Width(12).Align(lipgloss.Right).Foreground(colorInactive)
+	permStyle := lipgloss.NewStyle().Width(10).Align(lipgloss.Right).Foreground(colorInactive)
+	metaStyle := lipgloss.NewStyle().Width(10).Align(lipgloss.Right).Foreground(colorInactive)
+
+	// Calculate available width for name
+	// Structure: [Icon 2][Sp 1][Name ?][Sp 2][Size 8][Sp 1][Date 12][Sp 1][Perm 10][Sp 1][Meta 10]
+	// Strict Sum: 2 + 1 + 2 + 8 + 1 + 12 + 1 + 10 + 1 + 10 = 48
+	// We use 52 to provide a small buffer against edge-wrapping
+	fixedWidths := 52
+	nameWidth := max(maxWidth-fixedWidths, 10)
+
 	for i := visibleStart; i < visibleEnd; i++ {
 		file := panel.Files[i]
-		var line string
 
 		icon := s.getFileIcon(file)
 
-		fileName := file.Name
-		if len(fileName) > 30 {
-			fileName = fileName[:27] + "..."
+		// Format Name with strict truncation
+		name := file.Name
+		if len(name) > nameWidth {
+			name = name[:nameWidth-1] + "…"
 		}
 
+		var nameRendered string
 		if file.IsDir {
-			line = fmt.Sprintf("%s %s", icon, scpDirStyle.Render(fileName))
+			nameRendered = scpDirStyle.Width(nameWidth).Render(name)
 		} else {
-			sizeStr := formatSize(file.Size)
-			line = fmt.Sprintf("%s %-30s %10s", icon, fileName, sizeStr)
+			nameRendered = nameStyle.Width(nameWidth).Render(name)
 		}
+
+		// Format Metadata
+		sizeStr := formatSize(file.Size)
+		dateStr := file.ModTime.Format("Jan 02 15:04")
+		permStr := file.Perm
+		ownerStr := fmt.Sprintf("%s:%s", file.Owner, file.Group)
+		if len(ownerStr) > 10 {
+			ownerStr = ownerStr[:9] + "…"
+		}
+
+		// Build Row with spaces
+		line := lipgloss.JoinHorizontal(lipgloss.Bottom,
+			icon, " ",
+			nameRendered,
+			"  ", // 2 spaces gap after name
+			sizeStyle.Render(sizeStr), " ",
+			dateStyle.Render(dateStr), " ",
+			permStyle.Render(permStr), " ",
+			metaStyle.Render(ownerStr),
+		)
 
 		if i == panel.SelectedIdx {
 			line = scpSelectedStyle.Render(line)
 		}
 
 		lines = append(lines, line)
+	}
+
+	remainingLines := maxHeight - len(lines)
+	if remainingLines > 0 {
+		lines = append(lines, strings.Repeat("\n", remainingLines))
 	}
 
 	return strings.Join(lines, "\n")
@@ -471,10 +525,7 @@ func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		panel := s.getActivePanel()
 		if panel.SelectedIdx > 0 {
 			panel.SelectedIdx--
-			// Auto-scroll
-			if panel.SelectedIdx < panel.ScrollOffset {
-				panel.ScrollOffset = panel.SelectedIdx
-			}
+			// Auto-scroll logic handled in view
 		}
 		return s, nil
 
@@ -482,11 +533,7 @@ func (s *SCPManager) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		panel := s.getActivePanel()
 		if panel.SelectedIdx < len(panel.Files)-1 {
 			panel.SelectedIdx++
-			// Auto-scroll
-			maxVisible := s.height - 8
-			if panel.SelectedIdx >= panel.ScrollOffset+maxVisible {
-				panel.ScrollOffset = panel.SelectedIdx - maxVisible + 1
-			}
+			// Auto-scroll logic handled in view
 		}
 		return s, nil
 
@@ -736,6 +783,7 @@ func (s *SCPManager) recursiveSearchDir(basePath, query, relativePath string) {
 	}
 
 	if err != nil {
+		// Silently skip directories that cannot be accessed during search
 		return
 	}
 
@@ -751,10 +799,14 @@ func (s *SCPManager) recursiveSearchDir(basePath, query, relativePath string) {
 		if s.fuzzyMatch(query, strings.ToLower(file.Name)) {
 			// Create a new FileInfo with relative path in name for display
 			displayFile := ssh.FileInfo{
-				Name:  fullRelPath,
-				Size:  file.Size,
-				IsDir: file.IsDir,
-				Mode:  file.Mode,
+				Name:    fullRelPath,
+				Size:    file.Size,
+				IsDir:   file.IsDir,
+				Mode:    file.Mode,
+				ModTime: file.ModTime,
+				Perm:    file.Perm,
+				Owner:   file.Owner,
+				Group:   file.Group,
 			}
 			s.recursiveResults = append(s.recursiveResults, displayFile)
 		}
@@ -805,7 +857,7 @@ func (s *SCPManager) executeSearch() (tea.Model, tea.Cmd) {
 // executeCreateFile creates a new file or directory structure
 func (s *SCPManager) executeCreateFile() (tea.Model, tea.Cmd) {
 	if s.inputBuffer == "" {
-		s.status = "File name cannot be empty"
+		s.error = "File name cannot be empty"
 		s.inputMode = ModeNormal
 		return s, nil
 	}
@@ -827,7 +879,6 @@ func (s *SCPManager) executeCreateFile() (tea.Model, tea.Cmd) {
 
 			if s.activePanel == 0 {
 				// Local file system
-				// Create directories if they don't exist
 				err = s.createLocalDirAndFile(dir, fullPath)
 			} else {
 				// Remote file system
@@ -870,14 +921,14 @@ func (s *SCPManager) executeCreateFile() (tea.Model, tea.Cmd) {
 // executeRename renames the selected file or directory
 func (s *SCPManager) executeRename() (tea.Model, tea.Cmd) {
 	if s.inputBuffer == "" {
-		s.status = "New name cannot be empty"
+		s.error = "New name cannot be empty"
 		s.inputMode = ModeNormal
 		return s, nil
 	}
 
 	panel := s.getActivePanel()
 	if panel.SelectedIdx < 0 || panel.SelectedIdx >= len(panel.Files) {
-		s.status = "No file selected"
+		s.error = "No file selected"
 		s.inputMode = ModeNormal
 		return s, nil
 	}
@@ -967,7 +1018,7 @@ func (s *SCPManager) handleDeleteConfirmation(msg tea.KeyMsg) (tea.Model, tea.Cm
 // executeChangeDir changes to the specified directory
 func (s *SCPManager) executeChangeDir() (tea.Model, tea.Cmd) {
 	if s.inputBuffer == "" {
-		s.status = "Path cannot be empty"
+		s.error = "Path cannot be empty"
 		s.inputMode = ModeNormal
 		return s, nil
 	}
@@ -980,18 +1031,40 @@ func (s *SCPManager) executeChangeDir() (tea.Model, tea.Cmd) {
 		// If relative path, make it absolute from current directory
 		newPath = filepath.Join(panel.Path, newPath)
 	}
+	newPath = filepath.Clean(newPath)
 
 	s.inputMode = ModeNormal
 	s.inputBuffer = ""
-	panel.Path = filepath.Clean(newPath)
-	panel.SelectedIdx = 0
-	panel.ScrollOffset = 0
+	s.operationInProgress = true
+	s.status = "Changing directory..."
 
-	// List files in the new directory
-	if s.activePanel == 0 {
-		return s, s.listLocalFiles()
+	// Validate directory exists before changing
+	return s, func() tea.Msg {
+		var files []ssh.FileInfo
+		var err error
+
+		if s.activePanel == 0 {
+			files, err = ssh.ListLocalFiles(newPath)
+		} else {
+			if s.sftpClient == nil {
+				return SCPListFilesMsg{IsLocal: s.activePanel == 0, Err: fmt.Errorf("not connected")}
+			}
+			files, err = s.sftpClient.ListFiles(newPath)
+		}
+
+		if err != nil {
+			s.operationInProgress = false
+			return SCPOperationMsg{Operation: "Change directory", Success: false, Err: fmt.Errorf("directory does not exist or is inaccessible")}
+		}
+
+		// Directory is valid, update panel
+		panel.Path = newPath
+		panel.SelectedIdx = 0
+		panel.ScrollOffset = 0
+		s.operationInProgress = false
+
+		return SCPListFilesMsg{IsLocal: s.activePanel == 0, Files: files, Path: newPath}
 	}
-	return s, s.listRemoteFiles()
 }
 
 // createLocalDirAndFile creates directory structure and file locally
@@ -1011,9 +1084,23 @@ func (s *SCPManager) connectSFTP() tea.Cmd {
 	return func() tea.Msg {
 		client, err := ssh.NewSFTPClient(s.connection)
 		if err != nil {
-			return SCPConnectionMsg{nil, err}
+			var passphraseErr *ssh.PassphraseRequiredError
+			if errors.As(err, &passphraseErr) {
+				return SSHPassphraseRequiredMsg{
+					Connection: s.connection,
+					KeyFile:    passphraseErr.KeyFile,
+				}
+			}
+			return SCPConnectionMsg{nil, "", err}
 		}
-		return SCPConnectionMsg{client, nil}
+
+		// Fetch remote WD
+		wd, err := client.GetWorkingDir()
+		if err != nil {
+			wd = "." // Fallback
+		}
+
+		return SCPConnectionMsg{client, wd, nil}
 	}
 }
 
@@ -1052,45 +1139,93 @@ func (s *SCPManager) enterDirectory() tea.Cmd {
 	}
 
 	newPath := filepath.Join(panel.Path, file.Name)
-	panel.Path = newPath
-	panel.SelectedIdx = 0
-	panel.ScrollOffset = 0
+	
+	s.operationInProgress = true
+	s.status = "Entering directory..."
 
-	if s.activePanel == 0 {
-		return s.listLocalFiles()
+	return func() tea.Msg {
+		var files []ssh.FileInfo
+		var err error
+
+		if s.activePanel == 0 {
+			files, err = ssh.ListLocalFiles(newPath)
+		} else {
+			if s.sftpClient == nil {
+				s.operationInProgress = false
+				return SCPOperationMsg{Operation: "Enter directory", Success: false, Err: fmt.Errorf("not connected")}
+			}
+			files, err = s.sftpClient.ListFiles(newPath)
+		}
+
+		if err != nil {
+			s.operationInProgress = false
+			return SCPOperationMsg{Operation: "Enter directory", Success: false, Err: fmt.Errorf("cannot access directory: %w", err)}
+		}
+
+		// Update panel path
+		panel.Path = newPath
+		panel.SelectedIdx = 0
+		panel.ScrollOffset = 0
+		s.operationInProgress = false
+
+		return SCPListFilesMsg{IsLocal: s.activePanel == 0, Files: files, Path: newPath}
 	}
-	return s.listRemoteFiles()
 }
 
 func (s *SCPManager) goUpDirectory() tea.Cmd {
 	panel := s.getActivePanel()
 	parent := filepath.Dir(panel.Path)
 	if parent == panel.Path {
-		return nil // Already at root
+		s.error = "Already at root directory"
+		return nil
 	}
 
-	panel.Path = parent
-	panel.SelectedIdx = 0
-	panel.ScrollOffset = 0
+	s.operationInProgress = true
+	s.status = "Going up directory..."
 
-	if s.activePanel == 0 {
-		return s.listLocalFiles()
+	return func() tea.Msg {
+		var files []ssh.FileInfo
+		var err error
+
+		if s.activePanel == 0 {
+			files, err = ssh.ListLocalFiles(parent)
+		} else {
+			if s.sftpClient == nil {
+				s.operationInProgress = false
+				return SCPOperationMsg{Operation: "Go up directory", Success: false, Err: fmt.Errorf("not connected")}
+			}
+			files, err = s.sftpClient.ListFiles(parent)
+		}
+
+		if err != nil {
+			s.operationInProgress = false
+			return SCPOperationMsg{Operation: "Go up directory", Success: false, Err: fmt.Errorf("cannot access parent directory: %w", err)}
+		}
+
+		// Update panel path
+		panel.Path = parent
+		panel.SelectedIdx = 0
+		panel.ScrollOffset = 0
+		s.operationInProgress = false
+
+		return SCPListFilesMsg{IsLocal: s.activePanel == 0, Files: files, Path: parent}
 	}
-	return s.listRemoteFiles()
 }
 
 func (s *SCPManager) downloadFile() tea.Cmd {
 	if s.sftpClient == nil {
+		s.error = "Not connected to remote server"
 		return nil
 	}
 
 	if s.remotePanel.SelectedIdx >= len(s.remotePanel.Files) {
+		s.error = "No file selected"
 		return nil
 	}
 
 	file := s.remotePanel.Files[s.remotePanel.SelectedIdx]
 	if file.IsDir {
-		s.status = "Cannot download directories (yet)"
+		s.error = "Cannot download directories (yet)"
 		return nil
 	}
 
@@ -1111,16 +1246,18 @@ func (s *SCPManager) downloadFile() tea.Cmd {
 
 func (s *SCPManager) uploadFile() tea.Cmd {
 	if s.sftpClient == nil {
+		s.error = "Not connected to remote server"
 		return nil
 	}
 
 	if s.localPanel.SelectedIdx >= len(s.localPanel.Files) {
+		s.error = "No file selected"
 		return nil
 	}
 
 	file := s.localPanel.Files[s.localPanel.SelectedIdx]
 	if file.IsDir {
-		s.status = "Cannot upload directories (yet)"
+		s.error = "Cannot upload directories (yet)"
 		return nil
 	}
 
@@ -1157,18 +1294,4 @@ func formatSize(size int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

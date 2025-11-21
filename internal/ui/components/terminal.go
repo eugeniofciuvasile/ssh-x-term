@@ -1,6 +1,7 @@
 package components
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -12,21 +13,6 @@ import (
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ssh"
 )
 
-var (
-	terminalHeaderStyle = lipgloss.NewStyle().
-				Bold(true).
-				Background(lipgloss.Color("4")).
-				Foreground(lipgloss.Color("255")).
-				Align(lipgloss.Center).
-				Padding(0, 1)
-
-	terminalErrorStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("9")).
-				Align(lipgloss.Center).
-				Padding(1, 0)
-)
-
 // SSHOutputMsg contains output from the SSH session
 type SSHOutputMsg struct {
 	Data []byte
@@ -35,6 +21,12 @@ type SSHOutputMsg struct {
 // SSHErrorMsg contains an error from the SSH session
 type SSHErrorMsg struct {
 	Err error
+}
+
+// SSHPassphraseRequiredMsg indicates that a passphrase is needed
+type SSHPassphraseRequiredMsg struct {
+	Connection config.SSHConnection
+	KeyFile    string
 }
 
 // SSHSessionMsg is a message containing an SSH session
@@ -108,6 +100,11 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		t.createAndStartVTerminal()
 		return t, t.listenForSSHOutput()
+
+	case SSHPassphraseRequiredMsg:
+		return t, func() tea.Msg {
+			return msg
+		}
 
 	case SSHOutputMsg:
 		if len(msg.Data) > 0 {
@@ -202,6 +199,13 @@ func (t *TerminalComponent) startSession(conn config.SSHConnection, width, heigh
 		// Only subtract 1 for the terminal header (footer is now in main view)
 		session, err := ssh.NewBubbleTeaSession(conn, width, height-1)
 		if err != nil {
+			var passphraseErr *ssh.PassphraseRequiredError
+			if errors.As(err, &passphraseErr) {
+				return SSHPassphraseRequiredMsg{
+					Connection: conn,
+					KeyFile:    passphraseErr.KeyFile,
+				}
+			}
 			return SSHSessionMsg{nil, err}
 		}
 		return SSHSessionMsg{session, nil}

@@ -7,27 +7,12 @@ import (
 	"time"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/pkg/sshutil"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-)
-
-var (
-	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	blurredStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	noStyle      = lipgloss.NewStyle()
-
-	focusedButton = focusedStyle.Render("[ Submit ]")
-	blurredButton = fmt.Sprintf("[ %s ]", blurredStyle.Render("Submit"))
-
-	formStyle = lipgloss.NewStyle().
-			Padding(1, 2)
-
-	formTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205")).
-			MarginBottom(1)
 )
 
 // ConnectionForm represents a form for creating/editing connections
@@ -42,7 +27,19 @@ type ConnectionForm struct {
 	width        int
 	height       int
 	errorMessage string
+
+	// Dropdown for SSH key selection (only used when usePassword == false)
+	dropdownOpen bool
+	keyList      list.Model
+	allKeys      []string // scanned keys from ~/.ssh
 }
+
+// list item type for key paths
+type keyItem string
+
+func (k keyItem) Title() string       { return string(k) }
+func (k keyItem) Description() string { return "" }
+func (k keyItem) FilterValue() string { return string(k) }
 
 // NewConnectionForm creates a new connection form
 func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
@@ -60,54 +57,38 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	}
 
 	// Create text inputs
+	// 0: Name, 1: Host, 2: Port, 3: User, 4: Pass, 5: Key, 6: ID
 	inputs = make([]textinput.Model, 7)
 
-	// Name input
-	inputs[0] = textinput.New()
-	inputs[0].Placeholder = "Connection Name"
-	inputs[0].Focus()
-	inputs[0].Width = 40
-	inputs[0].Prompt = focusedStyle.Render("> ")
+	// Helper to init standard inputs
+	initInput := func(i int, placeholder string, width int) {
+		inputs[i] = textinput.New()
+		inputs[i].Placeholder = placeholder
+		inputs[i].Width = width
+		inputs[i].Prompt = "> "
+		inputs[i].PromptStyle = blurredStyle
+		inputs[i].TextStyle = blurredStyle
+	}
+
+	initInput(0, "Connection Name", 40)
+	inputs[0].Focus() // Focus first input initially
 	inputs[0].PromptStyle = focusedStyle
 	inputs[0].TextStyle = focusedStyle
 
-	// Host input
-	inputs[1] = textinput.New()
-	inputs[1].Placeholder = "Hostname or IP"
-	inputs[1].Width = 40
-	inputs[1].Prompt = "> "
-
-	// Port input
-	inputs[2] = textinput.New()
-	inputs[2].Placeholder = "Port (default: 22)"
-	inputs[2].Width = 40
-	inputs[2].Prompt = "> "
-
-	// Username input
-	inputs[3] = textinput.New()
-	inputs[3].Placeholder = "Username"
-	inputs[3].Width = 30
-	inputs[3].Prompt = "> "
+	initInput(1, "Hostname or IP", 40)
+	initInput(2, "Port (default: 22)", 40)
+	initInput(3, "Username", 30)
 
 	// Password input
-	inputs[4] = textinput.New()
-	inputs[4].Placeholder = "Password"
-	inputs[4].Width = 40
-	inputs[4].Prompt = "> "
+	initInput(4, "Password", 40)
 	inputs[4].EchoMode = textinput.EchoPassword
 	inputs[4].EchoCharacter = '•'
 
 	// Key file input
-	inputs[5] = textinput.New()
-	inputs[5].Placeholder = "Path to SSH key (example: ~/.ssh/id_rsa)"
-	inputs[5].Width = 60
-	inputs[5].Prompt = "> "
+	initInput(5, "Path to SSH key (example: ~/.ssh/id_rsa)", 50)
 
-	// ID input (hidden, used as identifier)
-	inputs[6] = textinput.New()
-	inputs[6].Placeholder = "ID (auto-generated)"
-	inputs[6].Width = 40
-	inputs[6].Prompt = "> "
+	// ID input (hidden from view, used as identifier)
+	initInput(6, "ID (auto-generated)", 40)
 
 	// If editing, fill the fields
 	if editing {
@@ -120,12 +101,30 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 		inputs[6].SetValue(initialConn.ID)
 	}
 
+	// Scan ~/.ssh for private keys (simple scan)
+	keys := sshutil.ScanSSHKeys()
+
+	// Prepare list items
+	items := make([]list.Item, 0, len(keys))
+	for _, k := range keys {
+		items = append(items, keyItem(k))
+	}
+
+	l := list.New(items, list.NewDefaultDelegate(), 50, 6)
+	l.SetShowTitle(false)
+	l.SetShowHelp(false)
+	l.SetFilteringEnabled(false)
+	l.DisableQuitKeybindings()
+
 	return &ConnectionForm{
-		inputs:      inputs,
-		focusIndex:  0,
-		editing:     editing,
-		connection:  initialConn,
-		usePassword: initialConn.UsePassword,
+		inputs:       inputs,
+		focusIndex:   0,
+		editing:      editing,
+		connection:   initialConn,
+		usePassword:  initialConn.UsePassword,
+		dropdownOpen: false,
+		keyList:      l,
+		allKeys:      keys,
 	}
 }
 
@@ -140,41 +139,179 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
+		// Global Cancel
+		if msg.String() == "ctrl+c" {
+			m.canceled = true
+			return m, nil
+		}
+
+		// Dropdown navigation logic
+		if m.focusIndex == 5 && !m.usePassword && m.dropdownOpen {
+			switch msg.String() {
+			case "esc":
+				// Close dropdown, stay on field
+				m.dropdownOpen = false
+				return m, nil
+
+			case "enter":
+				// Select current item
+				selected := m.keyList.SelectedItem()
+				if selected != nil {
+					if s, ok := selected.(keyItem); ok {
+						m.inputs[5].SetValue(string(s))
+					}
+				}
+				m.dropdownOpen = false
+				return m, nil
+
+			// Trap navigation keys strictly for the list
+			case "up", "down", "left", "right", "j", "k", "h", "l":
+				var cmd tea.Cmd
+				m.keyList, cmd = m.keyList.Update(msg)
+				return m, cmd
+
+			case "tab", "shift+tab":
+				// Tab closes the dropdown and proceeds to Standard Navigation below
+				m.dropdownOpen = false
+				// Fallthrough is not native in Go switches like this,
+				// so we continue execution after this block.
+			}
+
+			// Handle typing in the field while dropdown is open (Filtering)
+			if isPrintableKey(msg) {
+				newTi, cmd := m.inputs[5].Update(msg)
+				m.inputs[5] = newTi
+				cmds = append(cmds, cmd)
+
+				cur := strings.TrimSpace(m.inputs[5].Value())
+
+				// If field is empty after backspace, reopen dropdown with all keys
+				if cur == "" {
+					items := make([]list.Item, 0, len(m.allKeys))
+					for _, k := range m.allKeys {
+						items = append(items, keyItem(k))
+					}
+					m.keyList.SetItems(items)
+					m.keyList.ResetSelected()
+					m.dropdownOpen = true
+					return m, tea.Batch(cmds...)
+				}
+
+				// Manual entry trigger: if user types /, ~, or ., close dropdown immediately
+				if strings.Contains(cur, "/") || strings.HasPrefix(cur, "~") || strings.HasPrefix(cur, ".") {
+					m.dropdownOpen = false
+					return m, tea.Batch(cmds...)
+				}
+
+				// Filter the list
+				filtered := filterKeys(m.allKeys, cur)
+				items := make([]list.Item, 0, len(filtered))
+				for _, k := range filtered {
+					items = append(items, keyItem(k))
+				}
+				m.keyList.SetItems(items)
+				m.keyList.ResetSelected()
+
+				return m, tea.Batch(cmds...)
+			}
+			// If key was not handled above (e.g. Tab), we fall through to Standard Navigation
+		}
+
+		// Handle backspace
+		if m.focusIndex == 5 && !m.usePassword && !m.dropdownOpen {
+			if msg.String() == "backspace" || msg.String() == "delete" {
+				newTi, cmd := m.inputs[5].Update(msg)
+				m.inputs[5] = newTi
+				cmds = append(cmds, cmd)
+
+				cur := strings.TrimSpace(m.inputs[5].Value())
+
+				// If field is empty after backspace, reopen dropdown with all keys
+				if cur == "" {
+					items := make([]list.Item, 0, len(m.allKeys))
+					for _, k := range m.allKeys {
+						items = append(items, keyItem(k))
+					}
+					m.keyList.SetItems(items)
+					m.keyList.ResetSelected()
+					m.dropdownOpen = true
+					return m, tea.Batch(cmds...)
+				}
+
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+		// Standard navigation logic
 		switch msg.String() {
-		case "ctrl+c", "esc":
+		case "esc":
+			// If not in dropdown (handled above), Esc cancels the form
 			m.canceled = true
 			return m, nil
 
 		case "tab", "shift+tab", "up", "down":
-			// Cycle through inputs
+			// Calculate move direction
+			step := 1
 			if msg.String() == "shift+tab" || msg.String() == "up" {
-				m.focusIndex--
-				if m.focusIndex == 5 && m.usePassword {
-					m.focusIndex--
-				} else if m.focusIndex == 4 && !m.usePassword {
-					m.focusIndex--
-				}
-			} else {
-				m.focusIndex++
-				if m.focusIndex == 4 && !m.usePassword {
-					m.focusIndex++
-				} else if m.focusIndex == 5 && m.usePassword {
-					m.focusIndex++
-				}
+				step = -1
 			}
 
-			// Wrap around
-			if m.focusIndex > len(m.inputs) {
+			// Move focus
+			m.focusIndex += step
+
+			// Handle skipping logic
+			// Indices: 0=Name, 1=Host, 2=Port, 3=User, 4=Pass, 5=Key, 6=ID(Hidden), 7=SubmitButton
+
+			// Skip Password(4) if using Key
+			if !m.usePassword && m.focusIndex == 4 {
+				m.focusIndex += step
+			}
+			// Skip Key(5) if using Password
+			if m.usePassword && m.focusIndex == 5 {
+				m.focusIndex += step
+			}
+			// Skip ID(6) always
+			if m.focusIndex == 6 {
+				m.focusIndex += step
+			}
+
+			// Handle Wrap-around
+			if m.focusIndex > 7 {
 				m.focusIndex = 0
 			} else if m.focusIndex < 0 {
-				m.focusIndex = len(m.inputs)
+				m.focusIndex = 7
 			}
 
-			// Update input styles
+			// Re-check skip logic after wrap-around
+			if m.focusIndex == 6 {
+				m.focusIndex += step
+			}
+			if m.usePassword && m.focusIndex == 5 {
+				m.focusIndex += step
+			}
+			if !m.usePassword && m.focusIndex == 4 {
+				m.focusIndex += step
+			}
+
+			if m.focusIndex == 5 && !m.usePassword {
+				m.dropdownOpen = true
+				// Reset list to full view initially or filtered by existing text
+				cur := m.inputs[5].Value()
+				filtered := filterKeys(m.allKeys, cur)
+				items := make([]list.Item, 0, len(filtered))
+				for _, k := range filtered {
+					items = append(items, keyItem(k))
+				}
+				m.keyList.SetItems(items)
+				m.keyList.ResetSelected()
+			} else {
+				m.dropdownOpen = false
+			}
+
+			// Apply Focus/Blur Styles
 			for i := 0; i < len(m.inputs); i++ {
 				if i == m.focusIndex {
 					cmds = append(cmds, m.inputs[i].Focus())
@@ -182,38 +319,56 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.inputs[i].TextStyle = focusedStyle
 				} else {
 					m.inputs[i].Blur()
-					m.inputs[i].PromptStyle = noStyle
-					m.inputs[i].TextStyle = noStyle
+					m.inputs[i].PromptStyle = blurredStyle
+					m.inputs[i].TextStyle = blurredStyle
 				}
 			}
 
 		case "enter":
-			if m.focusIndex == len(m.inputs) {
-				// Submit button
+			// Check if we are at the submit button (index 7) OR submitting from a field
+			if m.focusIndex == 7 {
 				if valid, err := m.validateForm(); valid {
 					m.updateConnection()
 					m.submitted = true
 				} else {
 					m.errorMessage = err
 				}
+			} else {
+				// Move to next field on enter
+				return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyTab} }
 			}
 
 		case "ctrl+p":
 			// Toggle between password and key authentication
 			m.usePassword = !m.usePassword
-			if m.usePassword {
-				m.inputs[4].SetValue("")
-			} else {
-				m.inputs[5].SetValue("")
+			m.dropdownOpen = false
+
+			// Adjust focus if currently on the toggleable field
+			if m.usePassword && m.focusIndex == 5 {
+				m.focusIndex = 4
+				m.inputs[5].Blur()
+				m.inputs[4].Focus()
+			} else if !m.usePassword && m.focusIndex == 4 {
+				m.focusIndex = 5
+				m.inputs[4].Blur()
+				m.inputs[5].Focus()
+				// Auto-open if we switched into key field
+				m.dropdownOpen = true
 			}
 		}
 	}
 
-	// Handle character input
+	// Handle character input for standard fields
+	// (Key field handled separately in dropdown block if open, but we update it here if closed or fallback)
 	if m.focusIndex < len(m.inputs) {
-		newInput, cmd := m.inputs[m.focusIndex].Update(msg)
-		m.inputs[m.focusIndex] = newInput
-		cmds = append(cmds, cmd)
+		// Avoid double update for index 5 if we already handled it in dropdown block
+		if kmsg, ok := msg.(tea.KeyMsg); ok && m.focusIndex == 5 && m.dropdownOpen && isPrintableKey(kmsg) {
+			// already handled
+		} else {
+			newInput, cmd := m.inputs[m.focusIndex].Update(msg)
+			m.inputs[m.focusIndex] = newInput
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -228,42 +383,91 @@ func (m *ConnectionForm) View() string {
 	if m.editing {
 		title = "Edit SSH Connection"
 	}
-	b.WriteString(formTitleStyle.Render(title))
+	b.WriteString(sectionTitleStyle.Render(title))
 	b.WriteString("\n\n")
 
-	// Render inputs
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Name:", m.inputs[0].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Host:", m.inputs[1].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Port:", m.inputs[2].View()))
-	b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Username:", m.inputs[3].View()))
+	// Helper for rendering labels
+	label := func(text string) string {
+		return lipgloss.NewStyle().Foreground(colorSubText).Render(text)
+	}
 
-	// Auth method toggle
+	// Render standard inputs
+	b.WriteString(label("Name") + "\n")
+	b.WriteString(m.inputs[0].View() + "\n\n")
+
+	b.WriteString(label("Host") + "\n")
+	b.WriteString(m.inputs[1].View() + "\n\n")
+
+	b.WriteString(label("Port") + "\n")
+	b.WriteString(m.inputs[2].View() + "\n\n")
+
+	b.WriteString(label("Username") + "\n")
+	b.WriteString(m.inputs[3].View() + "\n\n")
+
+	// Auth method header
 	authMethod := "Using Password Authentication"
 	if !m.usePassword {
 		authMethod = "Using SSH Key Authentication"
 	}
-	b.WriteString(fmt.Sprintf("%s (Ctrl+P to toggle)\n\n", authMethod))
+	authHint := lipgloss.NewStyle().Foreground(colorInactive).Render("(Ctrl+P to toggle)")
+	b.WriteString(fmt.Sprintf("%s %s\n", label(authMethod), authHint))
 
-	// Render password or key file input based on auth method
+	// Render conditional input
 	if m.usePassword {
-		b.WriteString(fmt.Sprintf("%s\n%s\n\n", "Password:", m.inputs[4].View()))
+		b.WriteString(m.inputs[4].View()) // Password
 	} else {
-		b.WriteString(fmt.Sprintf("%s\n%s\n\n", "SSH Key Path:", m.inputs[5].View()))
-	}
+		// SSH Key input
+		b.WriteString(m.inputs[5].View())
 
-	// Render submit button
+		// Render dropdown under SSH key input
+		if m.dropdownOpen {
+			dropdownBox := lipgloss.NewStyle().
+				MarginLeft(2).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("63")).
+				Padding(0, 1).
+				Render(m.keyList.View())
+			b.WriteString("\n" + dropdownBox)
+		}
+	}
+	b.WriteString("\n\n")
+
+	// Render submit button (Index 7)
 	button := blurredButton
-	if m.focusIndex == len(m.inputs) {
+	if m.focusIndex == 7 {
 		button = focusedButton
 	}
-	fmt.Fprintf(&b, "\n%s\n", button)
+	b.WriteString(button)
 
 	// Show error message if any
 	if m.errorMessage != "" {
-		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(m.errorMessage))
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render(m.errorMessage))
 	}
 
-	return formStyle.Render(b.String())
+	// Wrap content in a bordered box (Left aligned content)
+	formBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorPrimary).
+		Padding(1, 3).
+		Width(60).            // Fixed width for the box
+		Align(lipgloss.Left). // Align text inside the box to the left
+		Render(b.String())
+
+	// Center the box on the screen
+	availableHeight := max(m.height-3, 0)
+	return lipgloss.Place(
+		m.width,
+		availableHeight,
+		lipgloss.Center, // Horizontal Center
+		lipgloss.Center, // Vertical Center
+		formBox,
+	)
+}
+
+func (m *ConnectionForm) SetSize(width, height int) {
+	m.width = width
+	m.height = height
 }
 
 // IsCanceled returns whether the form was canceled
@@ -302,6 +506,11 @@ func (m *ConnectionForm) validateForm() (bool, string) {
 		}
 	}
 
+	// If using key authentication, key path must not be empty
+	if !m.usePassword && strings.TrimSpace(m.inputs[5].Value()) == "" {
+		return false, "SSH key path is required for key authentication"
+	}
+
 	return true, ""
 }
 
@@ -328,8 +537,42 @@ func (m *ConnectionForm) updateConnection() {
 		Host:        m.inputs[1].Value(),
 		Port:        port,
 		Username:    m.inputs[3].Value(),
-		Password:    m.inputs[4].Value(),
-		KeyFile:     m.inputs[5].Value(),
+		Password:    strings.TrimSpace(m.inputs[4].Value()),
+		KeyFile:     strings.TrimSpace(m.inputs[5].Value()),
 		UsePassword: m.usePassword,
 	}
+}
+
+// ---------- Helper functions ----------
+
+// filterKeys returns keys that contain the filter substring (case-insensitive)
+func filterKeys(keys []string, filter string) []string {
+	if filter == "" {
+		return keys
+	}
+	filter = strings.ToLower(filter)
+	out := make([]string, 0)
+	for _, k := range keys {
+		if strings.Contains(strings.ToLower(k), filter) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// isPrintableKey checks if the key message represents a character that modifies text input.
+// It returns true for standard characters, spaces, backspace, delete, and paste events.
+func isPrintableKey(msg tea.KeyMsg) bool {
+	// Check for standard text input types
+	switch msg.Type {
+	case tea.KeyRunes, tea.KeySpace, tea.KeyBackspace, tea.KeyDelete:
+		return true
+	}
+
+	// Allow paste events (which usually contain printable text)
+	if msg.Paste {
+		return true
+	}
+
+	return false
 }

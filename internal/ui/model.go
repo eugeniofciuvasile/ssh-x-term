@@ -53,6 +53,13 @@ type (
 	DeleteConnectionResultMsg struct {
 		Err error
 	}
+	SSHAuthRetryMsg struct {
+		Connection config.SSHConnection
+	}
+	SSHPassphraseRequiredMsg struct {
+		Connection config.SSHConnection
+		KeyFile    string
+	}
 )
 
 // AppState type
@@ -70,6 +77,7 @@ const (
 	StateBitwardenUnlock
 	StateOrganizationSelect
 	StateCollectionSelect
+	StateSSHPassphrase
 
 	// Layout constants for full-screen UI
 	headerHeight  = 1 // Header line at top
@@ -97,6 +105,8 @@ type Model struct {
 	bitwardenUnlockForm       *components.BitwardenUnlockForm
 	bitwardenOrganizationList *components.BitwardenOrganizationList
 	bitwardenCollectionList   *components.BitwardenCollectionList
+	sshPassphraseForm         *components.SSHPassphraseForm
+	pendingAction             string
 	spinner                   spinner.Model
 	loading                   bool
 	formHasError              bool
@@ -325,6 +335,8 @@ func (m *Model) getActiveComponent() tea.Model {
 		return m.terminal
 	case StateSCPFileManager:
 		return m.scpManager
+	case StateSSHPassphrase:
+		return m.sshPassphraseForm
 	default:
 		return nil
 	}
@@ -376,6 +388,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			m.bitwardenForm = nil
 			m.state = StateSelectStorage
 			m.storageSelect = components.NewStorageSelect()
+			m.storageSelect.SetSize(m.width, m.height)
 			return nil
 		}
 		if m.bitwardenForm.IsSubmitted() {
@@ -388,6 +401,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			}
 			m.bitwardenManager = bwm
 			m.bitwardenLoginForm = components.NewBitwardenLoginForm()
+			m.bitwardenLoginForm.SetSize(m.width, m.height)
 			m.state = StateBitwardenLogin
 			return nil
 		}
@@ -399,6 +413,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			m.bitwardenLoginForm = nil
 			m.state = StateSelectStorage
 			m.storageSelect = components.NewStorageSelect()
+			m.storageSelect.SetSize(m.width, m.height)
 			return nil
 		}
 		if m.bitwardenLoginForm.IsSubmitted() {
@@ -416,6 +431,7 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			m.bitwardenUnlockForm = nil
 			m.state = StateSelectStorage
 			m.storageSelect = components.NewStorageSelect()
+			m.storageSelect.SetSize(m.width, m.height)
 			return nil
 		}
 		if m.bitwardenUnlockForm.IsSubmitted() {
@@ -493,6 +509,52 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			m.connectionList.Reset()
 			return nil
 		}
+	case StateSSHPassphrase:
+		m.sshPassphraseForm = model.(*components.SSHPassphraseForm)
+		if m.sshPassphraseForm.IsCanceled() {
+			m.state = StateConnectionList
+			m.connectionList.SetSize(m.width, m.listHeight())
+			m.sshPassphraseForm = nil
+			m.pendingAction = ""
+			return nil
+		}
+		if m.sshPassphraseForm.IsSubmitted() {
+			// Get the updated connection with password/passphrase
+			updatedConn := m.sshPassphraseForm.Connection
+			updatedConn.Password = m.sshPassphraseForm.Value()
+
+			action := m.pendingAction
+			m.sshPassphraseForm = nil
+			m.pendingAction = ""
+
+			if action == "scp" {
+				// Launch SCP manager with the passphrase
+				m.scpManager = components.NewSCPManager(updatedConn)
+				m.state = StateSCPFileManager
+
+				initCmd := m.scpManager.Init()
+				contentHeight := max(m.height-headerHeight-footerHeight, 12)
+				sizeMsg := tea.WindowSizeMsg{
+					Width:  m.width,
+					Height: contentHeight,
+				}
+				_, sizeCmd := m.scpManager.Update(sizeMsg)
+				return tea.Batch(initCmd, sizeCmd)
+			} else {
+				// Default to terminal
+				m.terminal = components.NewTerminalComponent(updatedConn)
+				m.state = StateSSHTerminal
+
+				initCmd := m.terminal.Init()
+				contentHeight := max(m.height-headerHeight-footerHeight, 12)
+				sizeMsg := tea.WindowSizeMsg{
+					Width:  m.width,
+					Height: contentHeight,
+				}
+				_, sizeCmd := m.terminal.Update(sizeMsg)
+				return tea.Batch(initCmd, sizeCmd)
+			}
+		}
 	}
 	return cmd
 }
@@ -506,6 +568,7 @@ func (m *Model) resetConnectionState() {
 	case components.StorageLocal:
 		m.state = StateSelectStorage
 		m.storageSelect = components.NewStorageSelect()
+		m.storageSelect.SetSize(m.width, m.height)
 	case components.StorageBitwarden:
 		if m.bitwardenCollectionList != nil {
 			m.bitwardenCollectionList.Reset()
@@ -544,4 +607,5 @@ func (m *Model) resetOrganizationState() {
 	}
 	m.state = StateSelectStorage
 	m.storageSelect = components.NewStorageSelect()
+	m.storageSelect.SetSize(m.width, m.height)
 }

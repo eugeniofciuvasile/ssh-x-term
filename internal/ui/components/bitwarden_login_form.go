@@ -6,31 +6,28 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	bwFormStyle = lipgloss.NewStyle().
-			Padding(1, 2)
-
-	bwTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205")).
-			MarginBottom(1)
-)
-
 type BitwardenLoginForm struct {
 	passwordInput textinput.Model
 	otpInput      textinput.Model
-	stage         int // 0 = password, 1 = otp, 2 = done
+	stage         int // 0 = password, 1 = otp
 	submitted     bool
 	canceled      bool
 	errorMsg      string
+	width         int
+	height        int
 }
 
 func NewBitwardenLoginForm() *BitwardenLoginForm {
 	ti := textinput.New()
-	ti.Placeholder = "Password"
+	ti.Placeholder = "Master Password"
 	ti.EchoMode = textinput.EchoPassword
 	ti.Focus()
-	ti.Width = 40
+	ti.Width = 50
+
+	// Style styling
+	ti.PromptStyle = focusedStyle
+	ti.TextStyle = focusedStyle
+
 	return &BitwardenLoginForm{
 		passwordInput: ti,
 		stage:         0,
@@ -46,6 +43,10 @@ func (f *BitwardenLoginForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return f, nil
 	}
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		f.SetSize(msg.Width, msg.Height)
+		return f, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
@@ -58,12 +59,18 @@ func (f *BitwardenLoginForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					f.errorMsg = "Password required"
 					return f, nil
 				}
+				// Move to Stage 2: OTP
 				f.stage = 1
+				f.errorMsg = "" // Clear errors
+
 				f.otpInput = textinput.New()
-				f.otpInput.Placeholder = "2FA Code (if enabled, else leave blank)"
-				f.otpInput.CharLimit = 8
+				f.otpInput.Placeholder = "Leave blank if disabled"
+				f.otpInput.CharLimit = 6 // Standard OTP length usually
 				f.otpInput.Focus()
 				f.otpInput.Width = 40
+				f.otpInput.PromptStyle = focusedStyle
+				f.otpInput.TextStyle = focusedStyle
+
 				return f, nil
 			case 1:
 				f.submitted = true
@@ -71,43 +78,81 @@ func (f *BitwardenLoginForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+
+	var cmd tea.Cmd
 	switch f.stage {
 	case 0:
-		var cmd tea.Cmd
 		f.passwordInput, cmd = f.passwordInput.Update(msg)
-		return f, cmd
 	case 1:
-		var cmd tea.Cmd
 		f.otpInput, cmd = f.otpInput.Update(msg)
-		return f, cmd
 	}
-	return f, nil
+	return f, cmd
 }
 
 func (f *BitwardenLoginForm) View() string {
 	if f.canceled {
-		return bwFormStyle.Render("Login canceled.")
+		return ""
 	}
 
 	var content string
+	var title string
+	var promptLabel string
+	var activeInput string
+
 	switch f.stage {
 	case 0:
-		content = bwTitleStyle.Render("Bitwarden Login") + "\n\n"
-		content += "Enter your Bitwarden password:\n" + f.passwordInput.View()
-		if f.errorMsg != "" {
-			content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.errorMsg)
-		}
+		title = "Bitwarden Login"
+		promptLabel = "Enter your master password:"
+		activeInput = f.passwordInput.View()
 	case 1:
-		content = bwTitleStyle.Render("Bitwarden Login - 2FA") + "\n\n"
-		content += "Enter 2FA code if required (or leave blank):\n" + f.otpInput.View()
-		if f.errorMsg != "" {
-			content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(f.errorMsg)
-		}
+		title = "Two-Factor Authentication"
+		promptLabel = "Enter 2FA code (or press Enter to skip):"
+		activeInput = f.otpInput.View()
 	default:
 		content = "Logging in..."
 	}
 
-	return bwFormStyle.Render(content)
+	// Build layout if not in default state
+	if content == "" {
+		content = lipgloss.JoinVertical(lipgloss.Center,
+			sectionTitleStyle.Render(title),
+			promptLabel,
+			"\n",
+			activeInput,
+		)
+
+		if f.errorMsg != "" {
+			content = lipgloss.JoinVertical(lipgloss.Center,
+				content,
+				"\n",
+				errorStyle.Render(f.errorMsg),
+			)
+		}
+	}
+
+	// Create the Bordered Box
+	formBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorPrimary).
+		Padding(1, 3).
+		Width(60).
+		Align(lipgloss.Left). // Center text inside box
+		Render(content)
+
+	// Center Box on Screen
+	availableHeight := max(f.height-3, 0)
+	return lipgloss.Place(
+		f.width,
+		availableHeight,
+		lipgloss.Center,
+		lipgloss.Center,
+		formBox,
+	)
+}
+
+func (f *BitwardenLoginForm) SetSize(width, height int) {
+	f.width = width
+	f.height = height
 }
 
 func (f *BitwardenLoginForm) IsSubmitted() bool {
