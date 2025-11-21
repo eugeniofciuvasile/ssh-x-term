@@ -211,8 +211,19 @@ func (s *SCPManager) View() string {
 
 	// Build status/footer with input prompt if in input mode
 	var statusText string
+
+	// Styles for status messages
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true) // Green
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)      // Red
+	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))            // Grey/Normal
+
+	// Container style ensures it is centered and full width
+	containerStyle := scpStatusStyle.Width(s.width).Align(lipgloss.Center)
+
 	if s.error != "" {
-		statusText = scpErrorStyle.Render(s.error)
+		// Render Error (Red)
+		msg := errStyle.Render(s.error)
+		statusText = containerStyle.Render(msg)
 		s.error = "" // Clear error after displaying
 	} else if s.inputMode != ModeNormal {
 		// Show input prompt
@@ -220,9 +231,18 @@ func (s *SCPManager) View() string {
 		if s.inputMode == ModeSearch && len(s.searchMatches) > 0 {
 			prompt += fmt.Sprintf(" [%d/%d matches]", s.searchSelectedIdx+1, len(s.searchMatches))
 		}
-		statusText = scpStatusStyle.Width(s.width).Render(prompt)
+		statusText = containerStyle.Render(prompt)
 	} else {
-		statusText = scpStatusStyle.Width(s.width).Render(s.status)
+		// Show Status
+		if strings.Contains(strings.ToLower(s.status), "successfully") {
+			// Render Success (Green)
+			msg := successStyle.Render(s.status)
+			statusText = containerStyle.Render(msg)
+		} else {
+			// Render Normal
+			msg := normalStyle.Render(s.status)
+			statusText = containerStyle.Render(msg)
+		}
 	}
 
 	// Calculate remaining height for content panels
@@ -254,7 +274,7 @@ func (s *SCPManager) renderPanels(availableHeight int) string {
 
 	// Render local panel
 	localTitle := "Local: " + s.localPanel.Path
-	localContent := s.renderPanelContent(&s.localPanel, panelHeight)
+	localContent := s.renderPanelContent(&s.localPanel, panelHeight, panelWidth)
 
 	var localPanel string
 	localStyle := scpPanelStyle
@@ -273,7 +293,7 @@ func (s *SCPManager) renderPanels(availableHeight int) string {
 
 	// Render remote panel
 	remoteTitle := "Remote: " + s.remotePanel.Path
-	remoteContent := s.renderPanelContent(&s.remotePanel, panelHeight)
+	remoteContent := s.renderPanelContent(&s.remotePanel, panelHeight, panelWidth)
 
 	var remotePanel string
 	remoteStyle := scpPanelStyle
@@ -295,12 +315,11 @@ func (s *SCPManager) renderPanels(availableHeight int) string {
 }
 
 // renderPanelContent renders the file list for a panel
-func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
+func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int, maxWidth int) string {
 	if len(panel.Files) == 0 {
 		return "  (empty directory)"
 	}
 
-	// Adjust scrolling to ensure selection is visible
 	if panel.SelectedIdx < panel.ScrollOffset {
 		panel.ScrollOffset = panel.SelectedIdx
 	}
@@ -312,23 +331,57 @@ func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
 	visibleStart := panel.ScrollOffset
 	visibleEnd := min(visibleStart+maxHeight, len(panel.Files))
 
+	// Define styles for columns
+	nameStyle := lipgloss.NewStyle()
+	sizeStyle := lipgloss.NewStyle().Width(8).Align(lipgloss.Right).Foreground(colorSubText)
+	dateStyle := lipgloss.NewStyle().Width(12).Align(lipgloss.Right).Foreground(colorInactive)
+	permStyle := lipgloss.NewStyle().Width(10).Align(lipgloss.Right).Foreground(colorInactive)
+	metaStyle := lipgloss.NewStyle().Width(10).Align(lipgloss.Right).Foreground(colorInactive)
+
+	// Calculate available width for name
+	// Structure: [Icon 2][Sp 1][Name ?][Sp 2][Size 8][Sp 1][Date 12][Sp 1][Perm 10][Sp 1][Meta 10]
+	// Strict Sum: 2 + 1 + 2 + 8 + 1 + 12 + 1 + 10 + 1 + 10 = 48
+	// We use 52 to provide a small buffer against edge-wrapping
+	fixedWidths := 52
+	nameWidth := max(maxWidth-fixedWidths, 10)
+
 	for i := visibleStart; i < visibleEnd; i++ {
 		file := panel.Files[i]
-		var line string
 
 		icon := s.getFileIcon(file)
 
-		fileName := file.Name
-		if len(fileName) > 30 {
-			fileName = fileName[:27] + "..."
+		// Format Name with strict truncation
+		name := file.Name
+		if len(name) > nameWidth {
+			name = name[:nameWidth-1] + "…"
 		}
 
+		var nameRendered string
 		if file.IsDir {
-			line = fmt.Sprintf("%s %s", icon, scpDirStyle.Render(fileName))
+			nameRendered = scpDirStyle.Width(nameWidth).Render(name)
 		} else {
-			sizeStr := formatSize(file.Size)
-			line = fmt.Sprintf("%s %-30s %10s", icon, fileName, sizeStr)
+			nameRendered = nameStyle.Width(nameWidth).Render(name)
 		}
+
+		// Format Metadata
+		sizeStr := formatSize(file.Size)
+		dateStr := file.ModTime.Format("Jan 02 15:04")
+		permStr := file.Perm
+		ownerStr := fmt.Sprintf("%s:%s", file.Owner, file.Group)
+		if len(ownerStr) > 10 {
+			ownerStr = ownerStr[:9] + "…"
+		}
+
+		// Build Row with spaces
+		line := lipgloss.JoinHorizontal(lipgloss.Bottom,
+			icon, " ",
+			nameRendered,
+			"  ", // 2 spaces gap after name
+			sizeStyle.Render(sizeStr), " ",
+			dateStyle.Render(dateStr), " ",
+			permStyle.Render(permStr), " ",
+			metaStyle.Render(ownerStr),
+		)
 
 		if i == panel.SelectedIdx {
 			line = scpSelectedStyle.Render(line)
@@ -337,7 +390,6 @@ func (s *SCPManager) renderPanelContent(panel *Panel, maxHeight int) string {
 		lines = append(lines, line)
 	}
 
-	// Fill remaining lines with empty space to maintain height consistency
 	remainingLines := maxHeight - len(lines)
 	if remainingLines > 0 {
 		lines = append(lines, strings.Repeat("\n", remainingLines))

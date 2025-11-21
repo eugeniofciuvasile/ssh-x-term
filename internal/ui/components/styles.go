@@ -122,7 +122,7 @@ var (
 
 	terminalHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Background(colorSecondary). // Blue background
+				Background(colorPrimary). // Purple background
 				Foreground(colorText).
 				Align(lipgloss.Center).
 				Padding(0, 1)
