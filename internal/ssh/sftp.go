@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
@@ -165,19 +163,6 @@ func sortFiles(files []FileInfo) {
 		}
 		return files[i].Name < files[j].Name
 	})
-}
-
-// getOwnerGroup attempts to extract UID/GID from the file info system interface
-func getOwnerGroup(sys interface{}) (string, string) {
-	// This usually works for Unix/Linux systems (remote SFTP and local Linux/Mac)
-	if stat, ok := sys.(*syscall.Stat_t); ok {
-		return strconv.Itoa(int(stat.Uid)), strconv.Itoa(int(stat.Gid))
-	}
-	// Fallback for sftp.FileStat or systems where syscall.Stat_t isn't available
-	if stat, ok := sys.(*sftp.FileStat); ok {
-		return strconv.Itoa(int(stat.UID)), strconv.Itoa(int(stat.GID))
-	}
-	return "-", "-"
 }
 
 // DownloadFile downloads a file from remote to local
