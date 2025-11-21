@@ -2,16 +2,12 @@ package components
 
 import (
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/pkg/sshutil"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -106,7 +102,7 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	}
 
 	// Scan ~/.ssh for private keys (simple scan)
-	keys := scanSSHKeys()
+	keys := sshutil.ScanSSHKeys()
 
 	// Prepare list items
 	items := make([]list.Item, 0, len(keys))
@@ -117,7 +113,7 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	l := list.New(items, list.NewDefaultDelegate(), 50, 6)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
-	l.SetFilteringEnabled(false) // we'll filter manually so we can use the input text as filter
+	l.SetFilteringEnabled(false)
 	l.DisableQuitKeybindings()
 
 	return &ConnectionForm{
@@ -152,9 +148,7 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// --- DROPDOWN NAVIGATION LOGIC ---
-		// If we are on the Key field (index 5) and the dropdown is OPEN,
-		// trap specific keys for list navigation.
+		// Dropdown navigation logic
 		if m.focusIndex == 5 && !m.usePassword && m.dropdownOpen {
 			switch msg.String() {
 			case "esc":
@@ -194,6 +188,18 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				cur := strings.TrimSpace(m.inputs[5].Value())
 
+				// If field is empty after backspace, reopen dropdown with all keys
+				if cur == "" {
+					items := make([]list.Item, 0, len(m.allKeys))
+					for _, k := range m.allKeys {
+						items = append(items, keyItem(k))
+					}
+					m.keyList.SetItems(items)
+					m.keyList.ResetSelected()
+					m.dropdownOpen = true
+					return m, tea.Batch(cmds...)
+				}
+
 				// Manual entry trigger: if user types /, ~, or ., close dropdown immediately
 				if strings.Contains(cur, "/") || strings.HasPrefix(cur, "~") || strings.HasPrefix(cur, ".") {
 					m.dropdownOpen = false
@@ -214,7 +220,32 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// If key was not handled above (e.g. Tab), we fall through to Standard Navigation
 		}
 
-		// --- STANDARD NAVIGATION LOGIC ---
+		// Handle backspace
+		if m.focusIndex == 5 && !m.usePassword && !m.dropdownOpen {
+			if msg.String() == "backspace" || msg.String() == "delete" {
+				newTi, cmd := m.inputs[5].Update(msg)
+				m.inputs[5] = newTi
+				cmds = append(cmds, cmd)
+
+				cur := strings.TrimSpace(m.inputs[5].Value())
+
+				// If field is empty after backspace, reopen dropdown with all keys
+				if cur == "" {
+					items := make([]list.Item, 0, len(m.allKeys))
+					for _, k := range m.allKeys {
+						items = append(items, keyItem(k))
+					}
+					m.keyList.SetItems(items)
+					m.keyList.ResetSelected()
+					m.dropdownOpen = true
+					return m, tea.Batch(cmds...)
+				}
+
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+		// Standard navigation logic
 		switch msg.String() {
 		case "esc":
 			// If not in dropdown (handled above), Esc cancels the form
@@ -265,8 +296,6 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusIndex += step
 			}
 
-			// --- AUTO-OPEN DROPDOWN LOGIC ---
-			// If we arrived at index 5 (Key), open the dropdown automatically
 			if m.focusIndex == 5 && !m.usePassword {
 				m.dropdownOpen = true
 				// Reset list to full view initially or filtered by existing text
@@ -333,7 +362,7 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// (Key field handled separately in dropdown block if open, but we update it here if closed or fallback)
 	if m.focusIndex < len(m.inputs) {
 		// Avoid double update for index 5 if we already handled it in dropdown block
-		if m.focusIndex == 5 && m.dropdownOpen && isPrintableKey(msg.(tea.KeyMsg)) {
+		if kmsg, ok := msg.(tea.KeyMsg); ok && m.focusIndex == 5 && m.dropdownOpen && isPrintableKey(kmsg) {
 			// already handled
 		} else {
 			newInput, cmd := m.inputs[m.focusIndex].Update(msg)
@@ -395,7 +424,7 @@ func (m *ConnectionForm) View() string {
 			dropdownBox := lipgloss.NewStyle().
 				MarginLeft(2).
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("63")). // Purple/Blue-ish border
+				BorderForeground(lipgloss.Color("63")).
 				Padding(0, 1).
 				Render(m.keyList.View())
 			b.WriteString("\n" + dropdownBox)
@@ -508,75 +537,13 @@ func (m *ConnectionForm) updateConnection() {
 		Host:        m.inputs[1].Value(),
 		Port:        port,
 		Username:    m.inputs[3].Value(),
-		Password:    m.inputs[4].Value(),
-		KeyFile:     m.inputs[5].Value(),
+		Password:    strings.TrimSpace(m.inputs[4].Value()),
+		KeyFile:     strings.TrimSpace(m.inputs[5].Value()),
 		UsePassword: m.usePassword,
 	}
 }
 
 // ---------- Helper functions ----------
-
-// scanSSHKeys scans ~/.ssh and returns a sorted list of candidate private key paths.
-// It excludes files ending with .pub and common SSH config files.
-func scanSSHKeys() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-	sshDir := filepath.Join(home, ".ssh")
-
-	var keys []string
-
-	// Basic exclude set
-	exclude := map[string]struct{}{
-		"known_hosts":     {},
-		"known_hosts.old": {},
-		"authorized_keys": {},
-		"config":          {},
-		"README":          {},
-	}
-
-	_ = filepath.WalkDir(sshDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// ignore permissions errors etc.
-			return nil
-		}
-
-		// skip directories (we only want files)
-		if d.IsDir() {
-			// don't traverse into subdirectories, only top-level files
-			if path != sshDir {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		base := filepath.Base(path)
-		if _, ok := exclude[base]; ok {
-			return nil
-		}
-		// exclude public keys
-		if strings.HasSuffix(base, ".pub") {
-			return nil
-		}
-		// Only include regular files
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-
-		// Append as candidate
-		keys = append(keys, path)
-		return nil
-	})
-
-	// sort for consistent order
-	sort.Strings(keys)
-	return keys
-}
 
 // filterKeys returns keys that contain the filter substring (case-insensitive)
 func filterKeys(keys []string, filter string) []string {
@@ -593,30 +560,19 @@ func filterKeys(keys []string, filter string) []string {
 	return out
 }
 
-// isPrintableKey checks if the key message represents a printable character
-func isPrintableKey(k tea.KeyMsg) bool {
-	// Reject control keys, arrows, etc.
-	r := []rune(k.String())
-	// If it's a named key like "up", "enter", etc. don't treat as printable
-	name := k.String()
-	named := map[string]struct{}{
-		"up": {}, "down": {}, "left": {}, "right": {},
-		"enter": {}, "esc": {}, "tab": {}, "shift+tab": {},
-		"delete": {}, "home": {}, "end": {},
-		"pageup": {}, "pagedown": {},
-	}
-	if _, ok := named[name]; ok {
-		return false
-	}
-
-	// Examine k.Runes (recommended by bubbletea key handling) - but KeyMsg doesn't expose runes directly.
-	// Fallback: check if the string is a single printable rune
-	if len(r) == 1 {
-		return unicode.IsPrint(r[0])
-	}
-	// Otherwise, try to detect single-char representations
-	if len(name) == 1 && unicode.IsPrint([]rune(name)[0]) {
+// isPrintableKey checks if the key message represents a character that modifies text input.
+// It returns true for standard characters, spaces, backspace, delete, and paste events.
+func isPrintableKey(msg tea.KeyMsg) bool {
+	// Check for standard text input types
+	switch msg.Type {
+	case tea.KeyRunes, tea.KeySpace, tea.KeyBackspace, tea.KeyDelete:
 		return true
 	}
+
+	// Allow paste events (which usually contain printable text)
+	if msg.Paste {
+		return true
+	}
+
 	return false
 }

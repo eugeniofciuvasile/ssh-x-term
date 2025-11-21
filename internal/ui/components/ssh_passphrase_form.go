@@ -23,7 +23,7 @@ func NewSSHPassphraseForm(conn config.SSHConnection) *SSHPassphraseForm {
 	ti.Placeholder = "Key Passphrase or Password"
 	ti.EchoMode = textinput.EchoPassword
 	ti.Focus()
-	ti.Width = 40
+	ti.Width = 50
 	ti.PromptStyle = focusedStyle
 	ti.TextStyle = focusedStyle
 
@@ -81,7 +81,7 @@ func (f *SSHPassphraseForm) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorPrimary).
 		Padding(1, 3).
-		Width(50).
+		Width(60).
 		Align(lipgloss.Center).
 		Render(content)
 
