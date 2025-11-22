@@ -1,6 +1,6 @@
 # SSH-X-Term
 
-<p>
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./logo.svg" width="240">
     <source media="(prefers-color-scheme: light)" srcset="./logo.svg" width="240">
@@ -13,33 +13,59 @@
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/blob/main/LICENSE"><img src="https://img.shields.io/github/license/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="License"></a>
 </p>
 
-SSH-X-Term is a powerful terminal-based SSH client with a TUI (Text User Interface) built on [Bubble Tea](https://github.com/charmbracelet/bubbletea).  
-It lets you manage SSH connections and securely store credentials using either **local system keyring** (via [go-keyring](https://github.com/zalando/go-keyring)) or **Bitwarden vault**, and connect to remote servers with both password and key-based authentication.  
-Cross-platform features include support for passh (Unix), plink.exe (Windows), and full tmux integration.
+**SSH-X-Term** is a powerful terminal-based SSH client with a TUI (Text User Interface) built on [Bubble Tea](https://github.com/charmbracelet/bubbletea).  
+It seamlessly integrates **SSH connection management**, **SCP/SFTP file transfers**, and **secure credential storage** into a single, responsive interface.
 
-![Screenshot](https://github.com/user-attachments/assets/a545d09b-2101-4c6d-b5b9-377b2d554d57)
+Credentials can be stored securely using your **local system keyring** (via [go-keyring](https://github.com/zalando/go-keyring)) or directly in your **Bitwarden vault**.  
+Cross-platform features include support for `passh` (Unix), `plink.exe` (Windows), and full `tmux` integration.
 
-## Features
+---
 
-- **Integrated SSH Terminal**: Fully functional terminal emulator within Bubble Tea
-  - VT100/ANSI escape sequence support for proper terminal rendering
-  - Scrollback buffer (10,000 lines) with keyboard and mouse scrolling
-  - Text selection with mouse (click and drag)
-  - Copy to clipboard support (Ctrl+C or automatic on selection)
-  - Full keyboard support (arrow keys, home, end, function keys, etc.)
-  - Window resize handling
-  - Works entirely within the TUI (no external terminal takeover)
-- Manage SSH connections in an interactive Bubble Tea TUI
-- **Dual credential storage modes:**
-  - **Local storage** with go-keyring (system keyring integration)
-  - **Bitwarden vault** storage via Bitwarden CLI
-- Secure credential storage: passwords never stored in plaintext
-- Password-based SSH login automation using passh (Unix) or plink.exe (Windows)
-- Key-based SSH authentication
-- Open connections in new tmux windows or integrated terminal
-- Fullscreen and responsive TUI
+### 📺 Demo & Walkthrough
 
-## Project Structure
+<div align="center">
+  
+  [![Watch on YouTube](https://img.shields.io/badge/Watch_on_YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=C-s-Lh_VdpQ)
+  
+  <br><br>
+
+  <video src="media/demo.mp4" controls="controls" autoplay="autoplay" loop="loop" muted="muted" style="max-width: 100%; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+    Your browser does not support the video tag.
+  </video>
+
+</div>
+
+---
+
+## 🚀 Features
+
+### 🖥️ Integrated SSH Terminal
+Fully functional terminal emulator built entirely within the TUI.
+- **Standards Compliant**: VT100/ANSI escape sequence support for proper rendering.
+- **Power User Friendly**: 10,000 line scrollback buffer, mouse & keyboard scrolling.
+- **Clipboard**: Text selection with mouse (click & drag), automatic copy, or `Ctrl+C`.
+- **Responsive**: Full keyboard support and window resize handling.
+
+### 📂 SCP/SFTP File Manager
+Seamlessly transfer files without leaving the app.
+- **Dual-pane Interface**: Intuitive Local vs. Remote panel navigation.
+- **Full Control**: Upload, Download, Rename, Delete, and Create files/directories.
+- **Search**: Recursive file search (`/` key) to find deep files instantly.
+- **Secure**: Piggybacks on your existing authenticated SSH session.
+
+### 🔐 Secure Credential Management
+- **Local Storage**: Encrypted via system keyring (Keychain, Gnome Keyring, Credential Manager).
+- **Bitwarden Integration**: Direct access to your vault via Bitwarden CLI.
+- **Zero Plaintext**: Passwords are **never** stored in plaintext on disk.
+
+### ⚡ Automation & Compatibility
+- **Auto-Login**: Automates password entry using `passh` (Unix) or `plink.exe` (Windows).
+- **Key Auth**: Full support for private key authentication.
+- **TMUX**: Open connections in new tmux windows automatically.
+
+---
+
+## 📦 Project Structure
 
 ```
 ssh-x-term/
@@ -56,7 +82,7 @@ ssh-x-term/
 │   ├── ssh/
 │   │   ├── client.go                             # SSH client implementation
 │   │   ├── session_bubbletea_unix.go             # SSH session management (Unix)
-│   │   ├── session_bubbletea_unix.go             # SSH session management (Windows)
+│   │   ├── session_bubbletea_windows.go          # SSH session management (Windows)
 │   └── ui/
 │       ├── components/
 │       │   ├── bitwarden_collection_list.go      # Bitwarden collection selector
@@ -66,10 +92,11 @@ ssh-x-term/
 │       │   ├── bitwarden_unlock_form.go          # Bitwarden unlock form component
 │       │   ├── connection_list.go                # List of SSH connections
 │       │   ├── form.go                           # Form for adding/editing connections
+│       │   ├── scp_manager.go                    # SCP/SFTP File Manager component
 │       │   ├── storage_select.go                 # Credential storage selection (Local/Bitwarden)
 │       │   ├── terminal.go                       # Terminal component for SSH sessions
 │       │   ├── vterm.go                          # Virtual terminal component integrated inside Bubble Tea
-│       │   └── vterm_test.go                       # Virtual terminal tests
+│       │   └── vterm_test.go                     # Virtual terminal tests
 │       ├── connection_handler.go                 # Connection lifecycle management
 │       ├── model.go                              # Main UI model and state
 │       ├── update.go                             # Update logic for UI events
@@ -99,22 +126,23 @@ ssh-x-term/
 **Flow chart**
 - [FLOW](https://github.com/eugeniofciuvasile/ssh-x-term/blob/main/FLOW.md)
 
-## Prerequisites
+---
+
+## 🛠️ Prerequisites
 
 - **Go 1.24+**
-- **System keyring support** — for secure local password storage via go-keyring:
-  - **macOS**: Keychain (built-in)
-  - **Linux**: Secret Service API (`gnome-keyring`, `kwallet`, or compatible)
-  - **Windows**: Credential Manager (built-in)
-- **Bitwarden CLI (`bw`)** — optional, for Bitwarden vault credential management ([install guide](https://bitwarden.com/help/cli/))
-- **passh** — for password authentication on Unix ([compile it from here](https://github.com/clarkwang/passh))
-- **tmux** — recommended for multi-window SSH sessions ([install guide](https://github.com/tmux/tmux/wiki/Installing))
-- **plink.exe** — for password authentication on Windows ([download from PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html))
-- **(Optional) ssh client** — `ssh` should be available on your system
+- **System Keyring** (for local storage):
+  - 🍎 **macOS**: Keychain (built-in)
+  - 🐧 **Linux**: Secret Service API (`gnome-keyring`, `kwallet`, etc.)
+  - 🪟 **Windows**: Credential Manager (built-in)
+- **External Tools**:
+  - `passh` (Unix) or `plink.exe` (Windows) for password automation.
+  - `tmux` (optional) for multi-window support.
+  - `bw` (optional) for Bitwarden integration.
 
 **Ensure all required binaries are available in your `$PATH`.**
 
-## System dependencies
+## 📚 System dependencies
 
 ssh-x-term requires the following system tools to be installed:
 
@@ -132,8 +160,6 @@ npm install -g @bitwarden/cli
 # follow github repo https://github.com/clarkwang/passh to compile passh
 ```
 
-**Note**: For Linux, ensure you have a keyring daemon running (e.g., `gnome-keyring-daemon` or `kwallet`) for go-keyring to work.
-
 ### macOS (with Homebrew):
 
 ```sh
@@ -142,171 +168,105 @@ npm install -g @bitwarden/cli
 # follow github repo https://github.com/clarkwang/passh to compile passh
 ```
 
-**Note**: macOS uses Keychain by default, which is already available.
-
 ### Windows:
 
 - Install `tmux` and `passh` via WSL/Cygwin or use alternatives.
 - Install Bitwarden CLI with: `npm install -g @bitwarden/cli`
 - Windows Credential Manager is used by go-keyring and is built-in.
 
-## Installation
+---
+
+## 📥 Installation
 
 ### Option 1: Install using npm (Recommended)
 
-The easiest way to install SSH-X-Term is using npm [npm package](https://www.npmjs.com/package/ssh-x-term):
+The easiest way to install is via the [npm package](https://www.npmjs.com/package/ssh-x-term):
 
 ```sh
 # Install globally
 npm install -g ssh-x-term
 
-# Run the command
+# Run
 sxt
 ```
 
-This will automatically download the appropriate binary for your platform and set up the command.
-
-The npm installer also attempts to install required dependencies (`bw`, `passh`, `tmux`) if they are not already available in your system's `$PATH`.
-
----
+> This automatically attempts to install required dependencies (`bw`, `passh`, `tmux`) if missing.
 
 ### Option 2: Build from source
 
-Ensure you have **Go 1.24+** installed. You can use either the Go from your package manager or [install manually](https://go.dev/dl/).  
-If you manually install Go, add the following to your shell config (`~/.bashrc`, `~/.zshrc`, etc.):
+1. **Clone & Build**:
+   ```sh
+   git clone https://github.com/eugeniofciuvasile/ssh-x-term.git
+   cd ssh-x-term
+   go build -o sxt ./cmd/sxt
+   ```
 
-```sh
-export GOROOT=/usr/local/go
-export GOPATH=$HOME/go
-export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
-```
+2. **Install with Go**:
+   ```sh
+   go install github.com/eugeniofciuvasile/ssh-x-term/cmd/sxt@latest
+   ```
 
-Then:
+### Option 3: Pre-built Binary
 
-```sh
-# Clone and build the project
-git clone https://github.com/eugeniofciuvasile/ssh-x-term.git
-cd ssh-x-term
-go build -o sxt ./cmd/sxt
-```
-
-Or install globally with Go:
-
-```sh
-go install github.com/eugeniofciuvasile/ssh-x-term/cmd/sxt@latest
-```
-
-Make sure `$GOPATH/bin` is in your `$PATH` to use `sxt` from anywhere.
+Download the latest binary from the [Releases Page](https://github.com/eugeniofciuvasile/ssh-x-term/releases).
 
 ---
 
-### Option 3: Download pre-built binary
+## 🎮 Usage
 
-You can download the pre-built binary for your platform from the [Releases](https://github.com/eugeniofciuvasile/ssh-x-term/releases) page.
+1. **Start the App**:
+   ```sh
+   sxt
+   ```
 
-After downloading:
+2. **First Run Setup**:
+   - Choose **Local Storage** (System Keyring) or **Bitwarden** (Vault).
 
-```sh
-chmod +x sxt
-mv sxt /usr/local/bin/   # or any location in your PATH
-```
+3. **Manage Connections**:
+   - `a` : **Add** a new connection.
+   - `e` : **Edit** selected connection.
+   - `d` : **Delete** connection.
+   - `s` : Open **SCP/SFTP File Manager**.
+   - `o` : Toggle **TMUX** mode (open in new window).
+   - `Enter` : **Connect** (start SSH session).
 
-## Usage
-1. Run the app:
-```sh
-./sxt
-# or, if installed globally:
-sxt
-```
-    
-2. **First run:** Choose your credential storage mode:
-    - **Local Storage**: Uses system keyring (Keychain/Secret Service/Credential Manager)
-    - **Bitwarden**: Uses Bitwarden vault (requires `bw` CLI and authentication)
+4. **📂 Inside SCP Manager**:
+   - `Tab` : Switch between **Local** ↔️ **Remote** panels.
+   - `Enter` : **Upload** (Local→Remote) or **Download** (Remote→Local).
+   - `n` : Create **New** file/folder.
+   - `r` : **Rename** file.
+   - `x` : **Delete** file.
+   - `/` : **Search** recursively.
 
-3. **Manage SSH connections:**
-    - Press `a` to add, `e` to edit, `d` to delete a connection.
-    - Press `o` to toggle opening connections in a new tmux window.
-    - Press `Enter` to connect.
-    - Use arrow keys to navigate.
-    - Credentials are stored securely based on your chosen storage mode.
+5. **🖥️ Inside SSH Session**:
+   - `PgUp` / `PgDn` : Scroll history.
+   - `Ctrl+D` : Send EOF.
+   - `Esc` `Esc` (Double Press) : Disconnect and return to menu.
 
-4. **Connection Form:**
-    - Fill in fields as prompted.
-    - `Tab` to navigate, `Ctrl+p` to toggle auth type, `Enter` to submit, `Esc` to cancel.
+---
 
-5. **SSH Session:**
-    - Fully integrated terminal within Bubble Tea UI
-    - **Navigation:**
-      - `Esc` `Esc` (double press) to disconnect and return to connection list
-        - For security, requires pressing ESC twice within 2 seconds
-        - After session is properly closed (via `logout`, `exit`, or `Ctrl+D`), single `Esc` is allowed
-      - `Ctrl+D` to send EOF (End of File) signal
-    - **Scrolling:**
-      - `PgUp` / `PgDn` to scroll up/down by 10 lines
-      - `Shift+Up` / `Shift+Down` for scrolling
-      - `Ctrl+Home` to scroll to top
-      - `Ctrl+End` to scroll to bottom
-      - Mouse wheel for scrolling
-    - **Text Selection & Copy:**
-      - Click and drag with mouse to select text
-      - `Ctrl+C` to copy selected text (or send interrupt if no selection)
-      - `Ctrl+Shift+C` to force copy selection
-      - Selected text is automatically copied to clipboard on mouse release
-    - **Terminal Features:**
-      - VT100/ANSI escape sequence support
-      - 10,000 line scrollback buffer
-      - Window resize support
-      - Full keyboard support (arrow keys, home, end, etc.)
-    - Passwords are supplied securely (never echoed or stored in plaintext).
+## ⚙️ Configuration
 
-## Configuration
+| Storage Mode | Details |
+|--------------|---------|
+| **Local** | • Config at `~/.config/ssh-x-term/ssh-x-term.json`<br>• Passwords stored in **System Keyring**.<br>• Metadata stored in JSON. |
+| **Bitwarden** | • Secrets stored in your **Bitwarden Vault**.<br>• Requires `bw` CLI.<br>• Supports Organizations & Collections. |
 
-SSH-X-Term supports two credential storage modes:
+---
 
-### Local Storage (Default)
-- Config is stored at: `~/.config/ssh-x-term/ssh-x-term.json`  
-- **Passwords are stored securely in your system keyring** via `go-keyring`:
-  - **macOS**: Stored in Keychain
-  - **Linux**: Stored via Secret Service API (gnome-keyring/kwallet)
-  - **Windows**: Stored in Credential Manager
-- Connection metadata (host, port, username, etc.) is saved in the JSON file
-- Passwords are **never** stored in plaintext in the JSON file
+## 🛡️ Security & Disclaimer
 
-### Bitwarden Vault Storage
-- Connection secrets are stored in your Bitwarden vault
-- Requires Bitwarden CLI (`bw`) to be installed and configured
-- Supports both personal vaults and organization collections
+**SSH-X-Term** is an independent open-source project released under the [MIT License](LICENSE).
 
-## Security Notes
+- **Credentials**: Your passwords/keys are handled securely via system APIs or Bitwarden. They are **never** logged or stored in plaintext files.
+- **Responsibility**: The safe handling of your credentials is ultimately your responsibility. The authors bear no liability for data loss or compromise.
+- **Affiliation**: Not affiliated with Bubble Tea, Bitwarden, or PuTTY.
 
-- **Local Storage Mode**: Passwords are stored securely using **go-keyring**, which integrates with your system's native credential storage:
-  - macOS: Keychain
-  - Linux: Secret Service API (gnome-keyring, kwallet, etc.)
-  - Windows: Credential Manager
-- **Bitwarden Mode**: Credentials are managed via Bitwarden CLI and stored in your encrypted vault
-- **SSH Authentication**: Passwords are supplied securely via subprocesses (`passh`, `plink.exe`) and never echoed or logged
-- **No plaintext passwords**: Passwords are **never** written to disk in plaintext (not in config files or logs)
+---
 
-## License
+## 👏 Credits
 
-[MIT](LICENSE)
-
-## Disclaimer
-
-SSH-X-Term is an independent open-source project released under the MIT License.  
-It is **not affiliated with, endorsed by, or supported by** any of the credited projects, including Bubble Tea, Bitwarden, passh, PuTTY/plink, or any other third-party software listed above.
-
-**Security Notice:**  
-SSH-X-Term integrates with external tools for SSH and credential management.  
-The safe handling, storage, and security of your credentials (including passwords and keys) is ultimately your responsibility.  
-By using this software, you agree that the author and contributors bear **no liability** for any potential loss, compromise, or misuse of credentials or data.
-
-For details, see the [MIT License](LICENSE).
-
-## Credits
-
-- [Bubble Tea](https://github.com/charmbracelet/bubbletea) — Terminal UI framework
-- [go-keyring](https://github.com/zalando/go-keyring) — Secure system keyring integration
-- [Bitwarden CLI](https://bitwarden.com/help/cli/) — Bitwarden vault management
-- [passh](https://github.com/clarkwang/passh) — Password-based SSH automation (Unix)
-- [PuTTY/plink.exe](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html) — Password-based SSH automation (Windows)
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea) — The TUI framework.
+- [go-keyring](https://github.com/zalando/go-keyring) — Secure keyring integration.
+- [Bitwarden CLI](https://bitwarden.com/help/cli/) — Vault management.
+- [passh](https://github.com/clarkwang/passh) & [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html) — Auth automation.
