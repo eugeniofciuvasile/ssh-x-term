@@ -8,6 +8,9 @@
   </picture>
   <br>
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/releases"><img src="https://img.shields.io/github/v/release/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="Latest Release"></a>
+  <a href="https://www.npmjs.com/package/ssh-x-term"><img src="https://img.shields.io/npm/v/ssh-x-term?style=flat-square&logo=npm" alt="NPM Version"></a>
+  <a href="https://github.com/eugeniofciuvasile/ssh-x-term/releases"><img src="https://img.shields.io/github/downloads/eugeniofciuvasile/ssh-x-term/total?style=flat-square&color=blue" alt="GitHub Downloads"></a>
+  <a href="https://www.npmjs.com/package/ssh-x-term"><img src="https://img.shields.io/npm/dt/ssh-x-term?style=flat-square&logo=npm" alt="NPM Downloads"></a>
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/actions"><img src="https://github.com/eugeniofciuvasile/ssh-x-term/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/stargazers"><img src="https://img.shields.io/github/stars/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="GitHub Stars"></a>
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/blob/main/LICENSE"><img src="https://img.shields.io/github/license/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="License"></a>
@@ -133,9 +136,11 @@ ssh-x-term/
   - 🐧 **Linux**: Secret Service API (`gnome-keyring`, `kwallet`, etc.)
   - 🪟 **Windows**: Credential Manager (built-in)
 - **External Tools**:
-  - `passh` (Unix) or `plink.exe` (Windows) for password automation.
-  - `tmux` (optional) for multi-window support.
-  - `bw` (optional) for Bitwarden integration.
+  - **Bitwarden CLI (`bw`)** — optional, for Bitwarden vault credential management ([install guide](https://bitwarden.com/help/cli/))
+  - **passh** — for password authentication on Unix ([compile it from here](https://github.com/clarkwang/passh))
+  - **tmux** — recommended for multi-window SSH sessions ([install guide](https://github.com/tmux/tmux/wiki/Installing))
+  - **plink.exe** — for password authentication on Windows ([download from PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html))
+  - **(Optional) ssh client** — `ssh` should be available on your system
 
 **Ensure all required binaries are available in your `$PATH`.**
 
@@ -229,10 +234,14 @@ Download the latest binary from the [Releases Page](https://github.com/eugeniofc
 
 4. **📂 Inside SCP Manager**:
    - `Tab` : Switch between **Local** ↔️ **Remote** panels.
-   - `Enter` : **Upload** (Local→Remote) or **Download** (Remote→Local).
+   - `Enter` : **Enter** folder.
+   - `Backspace` : **Exit** folder.
+   - `c` : **Change** folder.
+   - `g` : **Get**/**Download** file/folder.
+   - `u` : **Upload** file/folder.
    - `n` : Create **New** file/folder.
    - `r` : **Rename** file.
-   - `x` : **Delete** file.
+   - `d` : **Delete** file.
    - `/` : **Search** recursively.
 
 5. **🖥️ Inside SSH Session**:
