@@ -38,6 +38,15 @@ Cross-platform features include support for `passh` (Unix), `plink.exe` (Windows
 
 ## 🚀 Features
 
+### ⚡ Quick Connect Mode (NEW)
+Lightning-fast connection selection via CLI.
+- **Instant Access**: `sxt -l` for minimal UI connection picker
+- **Native SSH**: Connects using system SSH client directly
+- **Auto-Filter**: Start typing immediately - filter activates on first keypress
+- **Smart Navigation**: Arrow keys exit filter and navigate list
+- **Compact Display**: 10 connections per page
+- **No Tmux Required**: Works in any terminal
+
 ### 🖥️ Integrated SSH Terminal
 Fully functional terminal emulator built entirely within the TUI.
 - **Standards Compliant**: VT100/ANSI escape sequence support for proper rendering.
@@ -215,6 +224,21 @@ Download the latest binary from the [Releases Page](https://github.com/eugeniofc
 
 ## 🎮 Usage
 
+### First Time Setup
+
+Before using SSH-X-Term, initialize it once:
+
+```sh
+sxt -i
+```
+
+This will:
+- Migrate any old JSON configuration (if exists)
+- Create backup of existing SSH config
+- Set up SSH-X-Term for use
+
+### Standard Mode (Full TUI)
+
 1. **Start the App**:
    ```sh
    sxt
@@ -247,6 +271,44 @@ Download the latest binary from the [Releases Page](https://github.com/eugeniofc
    - `PgUp` / `PgDn` : Scroll history.
    - `Ctrl+D` : Send EOF.
    - `Esc` `Esc` (Double Press) : Disconnect and return to menu.
+
+### Quick Connect Mode (CLI)
+
+**Fast connection selection without the full TUI**:
+
+```sh
+# First time: Initialize SSH-X-Term
+sxt -i
+
+# Then use quick connect
+sxt -l
+```
+
+**Note**: You must run `sxt -i` once before using `sxt -l` to initialize and migrate your configuration.
+
+This displays a minimal connection list where you can:
+- **Start typing immediately** to filter connections by name
+- Use **arrow keys** to navigate (exits filter mode and navigates)
+- Press **Enter** while filtering to apply filter, or to connect when not filtering
+- Press **Esc** to clear filter (if filtering) or quit
+- Press **Ctrl+C** to quit immediately
+- **10 connections per page** with pagination
+
+The selected connection opens in your current terminal using:
+- **Unix/Linux/macOS**: Native `ssh` command (with `passh` for password auth)
+- **Windows**: Native `ssh` or `plink.exe` (for password auth)
+
+**Features**:
+- ✅ Auto-filter on keypress (no need to press `/`)
+- ✅ Arrow keys exit filter and navigate
+- ✅ Compact display (10 items per page)
+- ✅ Reads from your existing saved connections
+- ✅ Uses system keyring for password retrieval
+- ✅ Direct SSH client execution (no Bubble Tea terminal emulation)
+- ✅ Supports both password and key-based authentication
+- ✅ Works outside of tmux
+
+📖 **[See detailed Quick Connect guide](QUICK_CONNECT.md)** for examples and troubleshooting.
 
 ---
 
