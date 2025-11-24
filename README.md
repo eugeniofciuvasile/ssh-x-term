@@ -30,7 +30,6 @@ Cross-platform features include support for `passh` (Unix), `plink.exe` (Windows
   
   [![Watch on YouTube](https://img.shields.io/badge/Watch_on_YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=C-s-Lh_VdpQ)
   
-  <br><br>
   ![Demo](media/demo.gif)
 
 </div>
