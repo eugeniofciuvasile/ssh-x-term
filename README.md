@@ -255,8 +255,10 @@ Download the latest binary from the [Releases Page](https://github.com/eugeniofc
 
 | Storage Mode | Details |
 |--------------|---------|
-| **Local** | • Config at `~/.config/ssh-x-term/ssh-x-term.json`<br>• Passwords stored in **System Keyring**.<br>• Metadata stored in JSON. |
+| **Local** | • Config at `~/.ssh/config` (standard SSH config file)<br>• Passwords stored in **System Keyring**.<br>• Metadata stored as comments in SSH config.<br>• Fully compatible with standard SSH tools. |
 | **Bitwarden** | • Secrets stored in your **Bitwarden Vault**.<br>• Requires `bw` CLI.<br>• Supports Organizations & Collections. |
+
+**Note:** If you're upgrading from a previous version that used JSON config (`~/.config/ssh-x-term/ssh-x-term.json`), your connections will be automatically migrated to the SSH config format on first run.
 
 ---
 

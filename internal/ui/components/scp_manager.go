@@ -158,6 +158,11 @@ func (s *SCPManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return msg
 		}
 
+	case SSHPasswordRequiredMsg:
+		return s, func() tea.Msg {
+			return msg
+		}
+
 	case SCPListFilesMsg:
 		if msg.Err != nil {
 			s.error = fmt.Sprintf("Failed to list files: %s", msg.Err.Error())
@@ -1089,6 +1094,12 @@ func (s *SCPManager) connectSFTP() tea.Cmd {
 				return SSHPassphraseRequiredMsg{
 					Connection: s.connection,
 					KeyFile:    passphraseErr.KeyFile,
+				}
+			}
+			var passwordErr *ssh.PasswordRequiredError
+			if errors.As(err, &passwordErr) {
+				return SSHPasswordRequiredMsg{
+					Connection: s.connection,
 				}
 			}
 			return SCPConnectionMsg{nil, "", err}

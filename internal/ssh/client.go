@@ -25,6 +25,15 @@ func (e *PassphraseRequiredError) Error() string {
 	return fmt.Sprintf("passphrase required for encrypted key: %s", e.KeyFile)
 }
 
+// PasswordRequiredError indicates that a password is needed for authentication
+type PasswordRequiredError struct {
+	Connection config.SSHConnection
+}
+
+func (e *PasswordRequiredError) Error() string {
+	return fmt.Sprintf("password required for connection: %s@%s", e.Connection.Username, e.Connection.Host)
+}
+
 // Client represents an SSH client connection
 type Client struct {
 	conn *ssh.Client
@@ -40,7 +49,8 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 		password, err := keyring.Get(keyringService, connConfig.ID)
 		if err != nil {
 			log.Printf("Failed to retrieve password from keyring for connection ID %s: %v", connConfig.ID, err)
-			return nil, fmt.Errorf("failed to retrieve password: %w", err)
+			// Return PasswordRequiredError so UI can prompt for password
+			return nil, &PasswordRequiredError{Connection: connConfig}
 		}
 		connConfig.Password = password
 	}
@@ -49,78 +59,90 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 	var authMethods []ssh.AuthMethod
 
 	// 1. SSH Agent Support (Attempt this first for keys)
-	if socket := os.Getenv("SSH_AUTH_SOCK"); socket != "" {
-		log.Printf("[NewClient] SSH_AUTH_SOCK found: %s", socket)
+	if socket := os.Getenv("SSH_AUTH_SOCK"); socket != "" && !connConfig.UsePassword {
+		// Only use SSH Agent for non-password connections
+		log.Printf("[NewClient] SSH_AUTH_SOCK found: %s (will attempt agent auth)", socket)
 		if conn, err := net.Dial("unix", socket); err == nil {
 			agentClient := agent.NewClient(conn)
 			authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
 			log.Printf("[NewClient] Added SSH agent auth method")
+		} else {
+			log.Printf("[NewClient] Failed to connect to SSH agent: %v", err)
 		}
 	} else {
-		log.Printf("[NewClient] No SSH_AUTH_SOCK found")
+		if socket != "" && connConfig.UsePassword {
+			log.Printf("[NewClient] SSH_AUTH_SOCK found but skipping agent auth (UsePassword=true)")
+		} else {
+			log.Printf("[NewClient] No SSH_AUTH_SOCK found")
+		}
 	}
 
 	// 2. Identity File (Key File) Support
 	keyFile := connConfig.KeyFile
 
-	// Expand tilde in key file path
-	if keyFile != "" && keyFile[0] == '~' {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			keyFile = filepath.Join(homeDir, keyFile[2:]) // Skip "~/"
+	// Only process key files if NOT using password authentication
+	if !connConfig.UsePassword {
+		// Expand tilde in key file path
+		if keyFile != "" && keyFile[0] == '~' {
+			homeDir, err := os.UserHomeDir()
+			if err == nil {
+				keyFile = filepath.Join(homeDir, keyFile[2:]) // Skip "~/"
+			}
 		}
-	}
 
-	// If no key file specified and not using password, try default key location
-	if keyFile == "" && !connConfig.UsePassword {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			keyFile = filepath.Join(homeDir, ".ssh", "id_rsa")
-			log.Printf("[NewClient] Using default key file: %s", keyFile)
+		// If no key file specified, try default key location
+		if keyFile == "" {
+			homeDir, err := os.UserHomeDir()
+			if err == nil {
+				keyFile = filepath.Join(homeDir, ".ssh", "id_rsa")
+				log.Printf("[NewClient] Using default key file: %s", keyFile)
+			}
 		}
-	}
 
-	if keyFile != "" {
-		log.Printf("[NewClient] Reading key file: %s", keyFile)
-		keyBytes, err := os.ReadFile(keyFile)
-		if err != nil {
-			log.Printf("[NewClient] Failed to read key file %s: %v", keyFile, err)
-		} else {
-			// Try standard key parsing
-			signer, err := ssh.ParsePrivateKey(keyBytes)
-
-			// If that fails (e.g., encrypted key), try with passphrase if provided in Password field
+		if keyFile != "" {
+			log.Printf("[NewClient] Reading key file: %s", keyFile)
+			keyBytes, err := os.ReadFile(keyFile)
 			if err != nil {
-				log.Printf("[NewClient] ParsePrivateKey failed: %v (type: %T)", err, err)
-				if _, ok := err.(*ssh.PassphraseMissingError); ok {
-					log.Printf("[NewClient] Key is encrypted (PassphraseMissingError)")
-					// Key is encrypted. Do we have a "password" (acting as passphrase)?
-					if connConfig.Password != "" {
-						log.Printf("[NewClient] Attempting to parse with provided passphrase")
-						signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(connConfig.Password))
-						if err != nil {
-							log.Printf("[NewClient] Failed to parse encrypted key with provided passphrase: %v", err)
-							// Return PassphraseRequiredError so UI can prompt for correct passphrase
+				log.Printf("[NewClient] Failed to read key file %s: %v", keyFile, err)
+			} else {
+				// Try standard key parsing
+				signer, err := ssh.ParsePrivateKey(keyBytes)
+
+				// If that fails (e.g., encrypted key), try with passphrase if provided in Password field
+				if err != nil {
+					log.Printf("[NewClient] ParsePrivateKey failed: %v (type: %T)", err, err)
+					if _, ok := err.(*ssh.PassphraseMissingError); ok {
+						log.Printf("[NewClient] Key is encrypted (PassphraseMissingError)")
+						// Key is encrypted. Do we have a "password" (acting as passphrase)?
+						if connConfig.Password != "" {
+							log.Printf("[NewClient] Attempting to parse with provided passphrase")
+							signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(connConfig.Password))
+							if err != nil {
+								log.Printf("[NewClient] Failed to parse encrypted key with provided passphrase: %v", err)
+								// Return PassphraseRequiredError so UI can prompt for correct passphrase
+								return nil, &PassphraseRequiredError{KeyFile: keyFile}
+							}
+							log.Printf("[NewClient] Successfully parsed key with passphrase")
+						} else {
+							// No passphrase provided - return error so UI can prompt
+							log.Printf("[NewClient] No passphrase provided, returning PassphraseRequiredError")
 							return nil, &PassphraseRequiredError{KeyFile: keyFile}
 						}
-						log.Printf("[NewClient] Successfully parsed key with passphrase")
 					} else {
-						// No passphrase provided - return error so UI can prompt
-						log.Printf("[NewClient] No passphrase provided, returning PassphraseRequiredError")
-						return nil, &PassphraseRequiredError{KeyFile: keyFile}
+						log.Printf("[NewClient] Failed to parse private key (not a passphrase issue): %v", err)
 					}
 				} else {
-					log.Printf("[NewClient] Failed to parse private key (not a passphrase issue): %v", err)
+					log.Printf("[NewClient] Key parsed successfully (no passphrase needed)")
 				}
-			} else {
-				log.Printf("[NewClient] Key parsed successfully (no passphrase needed)")
-			}
 
-			if signer != nil {
-				authMethods = append(authMethods, ssh.PublicKeys(signer))
-				log.Printf("[NewClient] Added public key auth method")
+				if signer != nil {
+					authMethods = append(authMethods, ssh.PublicKeys(signer))
+					log.Printf("[NewClient] Added public key auth method")
+				}
 			}
 		}
+	} else {
+		log.Printf("[NewClient] UsePassword=true, skipping key file authentication")
 	}
 
 	// 3. Password Authentication

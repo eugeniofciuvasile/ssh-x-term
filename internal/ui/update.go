@@ -188,6 +188,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateSSHPassphrase
 		return m, nil
 
+	case components.SSHPasswordRequiredMsg:
+		// Password not found in keyring - show the password form
+		m.sshPassphraseForm = components.NewSSHPassphraseForm(msg.Connection)
+		m.sshPassphraseForm.SetSize(m.width, m.height)
+
+		switch m.state {
+		case StateSSHTerminal:
+			m.pendingAction = "terminal"
+			m.terminal = nil // Clean up the terminal that couldn't connect
+		case StateSCPFileManager:
+			m.pendingAction = "scp"
+			m.scpManager = nil // Clean up the SCP manager that couldn't connect
+		}
+
+		m.state = StateSSHPassphrase
+		return m, nil
+
 	case components.ToggleOpenInNewTerminalMsg:
 		return m, nil
 

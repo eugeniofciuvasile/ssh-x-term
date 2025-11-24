@@ -29,6 +29,11 @@ type SSHPassphraseRequiredMsg struct {
 	KeyFile    string
 }
 
+// SSHPasswordRequiredMsg indicates that a password is needed (not found in keyring)
+type SSHPasswordRequiredMsg struct {
+	Connection config.SSHConnection
+}
+
 // SSHSessionMsg is a message containing an SSH session
 type SSHSessionMsg struct {
 	Session *ssh.BubbleTeaSession
@@ -102,6 +107,11 @@ func (t *TerminalComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return t, t.listenForSSHOutput()
 
 	case SSHPassphraseRequiredMsg:
+		return t, func() tea.Msg {
+			return msg
+		}
+
+	case SSHPasswordRequiredMsg:
 		return t, func() tea.Msg {
 			return msg
 		}
@@ -204,6 +214,12 @@ func (t *TerminalComponent) startSession(conn config.SSHConnection, width, heigh
 				return SSHPassphraseRequiredMsg{
 					Connection: conn,
 					KeyFile:    passphraseErr.KeyFile,
+				}
+			}
+			var passwordErr *ssh.PasswordRequiredError
+			if errors.As(err, &passwordErr) {
+				return SSHPasswordRequiredMsg{
+					Connection: conn,
 				}
 			}
 			return SSHSessionMsg{nil, err}

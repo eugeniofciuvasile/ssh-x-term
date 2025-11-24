@@ -29,8 +29,13 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 		// Retrieve the password from the keyring
 		password, err := keyring.Get(keyringService, conn.ID)
 		if err != nil {
-			m.errorMessage = fmt.Sprintf("Failed to retrieve password from keyring for connection ID %s: %s", conn.ID, err)
-			return nil
+			log.Printf("Failed to retrieve password from keyring for connection ID %s: %v", conn.ID, err)
+			// Return message to show password prompt
+			return func() tea.Msg {
+				return components.SSHPasswordRequiredMsg{
+					Connection: *conn,
+				}
+			}
 		}
 		conn.Password = password // Set the password from the keyring
 		log.Printf("Password successfully retrieved for connection ID: %s", conn.ID)

@@ -65,16 +65,10 @@ func main() {
 }
 
 func runApp() {
-	configManager, err := config.NewConfigManager()
-	if err != nil {
-		log.Printf("Error initializing config: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Load configuration
-	if err := configManager.Load(); err != nil {
-		log.Printf("Error loading config: %v\n", err)
-		os.Exit(1)
+	// Check and migrate from old JSON config if needed
+	if err := config.CheckAndMigrate(); err != nil {
+		log.Printf("Warning: migration failed: %v\n", err)
+		// Continue anyway - user can manually migrate
 	}
 
 	// Create UI model
