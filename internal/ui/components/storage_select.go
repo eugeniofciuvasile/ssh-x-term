@@ -26,7 +26,7 @@ func NewStorageSelect() *StorageSelect {
 	return &StorageSelect{
 		options: []string{"Local Storage", "Bitwarden"},
 		descriptions: []string{
-			"Local JSON file (no password)",
+			"Local SSH config",
 			"Sync with Bitwarden vault",
 		},
 	}
