@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/zalando/go-keyring"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
@@ -91,7 +92,7 @@ type Model struct {
 	state                     AppState
 	storageSelect             *components.StorageSelect
 	storageBackend            config.Storage
-	configManager             *config.ConfigManager
+	sshConfigManager          *config.SSHConfigManager
 	width                     int
 	height                    int
 	connectionList            *components.ConnectionList
@@ -153,9 +154,9 @@ func (m *Model) loadPersonalVaultConnections() tea.Cmd {
 func loadConnectionsCmd(backend config.Storage) tea.Cmd {
 	return func() tea.Msg {
 		switch b := backend.(type) {
-		case *config.ConfigManager:
+		case *config.SSHConfigManager:
 			if err := b.Load(); err != nil {
-				log.Printf("LoadConnectionsFinishedMsg: error loading config manager: %v", err)
+				log.Printf("LoadConnectionsFinishedMsg: error loading SSH config manager: %v", err)
 				return LoadConnectionsFinishedMsg{Err: err}
 			}
 			return LoadConnectionsFinishedMsg{Connections: b.ListConnections()}
@@ -353,16 +354,16 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			switch m.storageSelect.SelectedBackend() {
 			case components.StorageLocal:
 				m.loading = true
-				cm, err := config.NewConfigManager()
+				scm, err := config.NewSSHConfigManager()
 				if err != nil {
-					m.errorMessage = fmt.Sprintf("Error initializing local config: %s", err)
+					m.errorMessage = fmt.Sprintf("Error initializing SSH config: %s", err)
 					m.loading = false
 					return nil
 				}
-				m.storageBackend = cm
-				m.configManager = cm
+				m.storageBackend = scm
+				m.sshConfigManager = scm
 				return tea.Batch(
-					loadConnectionsCmd(cm),
+					loadConnectionsCmd(scm),
 					m.spinner.Tick,
 				)
 			case components.StorageBitwarden:
@@ -522,6 +523,16 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 			// Get the updated connection with password/passphrase
 			updatedConn := m.sshPassphraseForm.Connection
 			updatedConn.Password = m.sshPassphraseForm.Value()
+
+			// Save the password to keyring for future use
+			if updatedConn.UsePassword && updatedConn.Password != "" {
+				if err := keyring.Set(keyringService, updatedConn.ID, updatedConn.Password); err != nil {
+					log.Printf("Failed to save password to keyring: %v", err)
+					m.errorMessage = fmt.Sprintf("Warning: Password not saved to keyring: %s", err)
+				} else {
+					log.Printf("Password saved to keyring for connection ID: %s", updatedConn.ID)
+				}
+			}
 
 			action := m.pendingAction
 			m.sshPassphraseForm = nil

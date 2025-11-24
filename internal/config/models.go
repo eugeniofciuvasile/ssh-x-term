@@ -4,7 +4,8 @@ package config
 type SSHConnection struct {
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
-	Host           string   `json:"host"`
+	HostPattern    string   `json:"host_pattern,omitempty"` // SSH config Host pattern
+	Host           string   `json:"host"`                   // Actual hostname
 	Port           int      `json:"port"`
 	Username       string   `json:"username"`
 	Password       string   `json:"password,omitempty"`

@@ -189,6 +189,50 @@ User experience:
 4. **Error Handling**: Comprehensive error handling for network failures
 5. **Resource Cleanup**: Proper cleanup of goroutines and SSH connections
 
+## Configuration Storage
+
+### SSH Config Format (v1.1.0+)
+
+Starting from v1.1.0, SSH-X-Term uses the standard `~/.ssh/config` file for storing connection information, providing better compatibility with standard SSH tools.
+
+#### Storage Implementation
+
+1. **SSHConfigManager** (`internal/config/sshconfig.go`)
+   - Parses and writes standard SSH config files
+   - Stores metadata as special comments (`#sxt:` prefix)
+   - Preserves non-managed SSH config entries
+   - Creates automatic backups before modifications
+   - Thread-safe with proper error handling
+
+2. **Metadata Format**
+   ```ssh
+   #sxt:id=<unique-id>
+   #sxt:name=<display-name>
+   #sxt:notes=<notes>
+   #sxt:use_password=<true|false>
+   #sxt:public_key=<public-key-content>
+   #sxt:organization_id=<bitwarden-org-id>
+   Host <host-pattern>
+       HostName <hostname>
+       Port <port>
+       User <username>
+       IdentityFile <key-file>
+   ```
+
+3. **Migration** (`internal/config/migrate.go`)
+   - Automatic migration from old JSON format
+   - Preserves all connection data and passwords
+   - Creates backup of old configuration
+   - Handles edge cases and conflicts
+
+#### Benefits
+
+- **Standard Compatibility**: Works with regular `ssh` command
+- **Easy Manual Editing**: Standard SSH config syntax
+- **Better Integration**: Compatible with other SSH tools
+- **Version Control Friendly**: Text-based format
+- **Preserves Existing Config**: Non-managed entries are preserved
+
 ## Conclusion
 
-This implementation provides a production-ready, integrated SSH terminal within Bubble Tea that offers a native terminal experience with modern features like scrollback, text selection, and mouse support. The modular architecture makes it easy to maintain and extend with additional features in the future.
+This implementation provides a production-ready, integrated SSH terminal within Bubble Tea that offers a native terminal experience with modern features like scrollback, text selection, and mouse support. The modular architecture and standard SSH config storage make it easy to maintain, extend, and integrate with existing SSH workflows.
