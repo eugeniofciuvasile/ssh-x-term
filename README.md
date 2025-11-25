@@ -308,8 +308,6 @@ The selected connection opens in your current terminal using:
 - ✅ Supports both password and key-based authentication
 - ✅ Works outside of tmux
 
-📖 **[See detailed Quick Connect guide](QUICK_CONNECT.md)** for examples and troubleshooting.
-
 ---
 
 ## ⚙️ Configuration
