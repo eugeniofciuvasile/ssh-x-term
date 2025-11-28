@@ -77,50 +77,82 @@ Seamlessly transfer files without leaving the app.
 
 ```
 ssh-x-term/
+├── .github/
+│   ├── ISSUE_TEMPLATE/           # GitHub issue templates (bug, feature, etc.)
+│   ├── workflows/                # CI/CD definitions (Go build workflow)
+│   └── dependabot.yml            # Dependency update automation
+│
 ├── cmd/
 │   └── sxt/
-│       └── main.go                                # Application entry point
+│       └── main.go               # Application entry point. Parses CLI flags and launches TUI or Quick Connect.
+│
 ├── internal/
-│   ├── config/
-│   │   ├── bitwarden.go                          # Bitwarden vault integration and management
-│   │   ├── config.go                             # Local configuration handling with go-keyring
-│   │   ├── models.go                             # Configuration data models
-│   │   ├── pathutil.go                           # Path utilities (home directory expansion)
-│   │   └── storage.go                            # Storage interface definition
-│   ├── ssh/
-│   │   ├── client.go                             # SSH client implementation
-│   │   ├── session_bubbletea_unix.go             # SSH session management (Unix)
-│   │   ├── session_bubbletea_windows.go          # SSH session management (Windows)
-│   └── ui/
+│   ├── cli/                                        # Quick-connect CLI features.
+│   │   ├── connector.go                            # Handles establishing SSH connections via CLI.
+│   │   └── selector.go                             # Handles selection/picking of connections in CLI.
+│   ├── config/                                     # Manages configuration, credential, and storage subsystems.
+│   │   ├── bitwarden.go                            # Bitwarden vault integration and management via CLI.
+│   │   ├── config.go                               # Handles local config and secure keyring storage (go-keyring).
+│   │   ├── migrate.go                              # Migrates old config formats to new SSH config style.
+│   │   ├── models.go                               # Configuration data models.
+│   │   ├── pathutil.go                             # Path resolution helpers (e.g., home directory expansion).
+│   │   ├── sshconfig.go                            # SSH config file parsing, generation, and backup.
+│   │   ├── sshconfig_test.go                       # Unit tests for SSH config handling.
+│   │   └── storage.go                              # Storage provider interfaces for credentials.
+│   ├── ssh/                                        # SSH client, session, and SFTP-related code.
+│   │   ├── client.go                               # Core SSH client: connection and authentication.
+│   │   ├── session_bubbletea_unix.go               # SSH session management for Unix systems.
+│   │   ├── session_bubbletea_windows.go            # For Windows systems.
+│   │   ├── sftp.go                                 # SFTP file transfer logic.
+│   │   ├── sftp_unix.go                            # Unix-specific SFTP features.
+│   │   └── sftp_windows.go                         # Windows-specific SFTP features.
+│   └── ui/                                         # Bubble Tea TUI (Text UI): models, logic, and components.
 │       ├── components/
-│       │   ├── bitwarden_collection_list.go      # Bitwarden collection selector
-│       │   ├── bitwarden_config.go               # Bitwarden CLI configuration form
-│       │   ├── bitwarden_login_form.go           # Bitwarden login form component
-│       │   ├── bitwarden_organization_list.go    # Bitwarden organization selector
-│       │   ├── bitwarden_unlock_form.go          # Bitwarden unlock form component
-│       │   ├── connection_list.go                # List of SSH connections
-│       │   ├── form.go                           # Form for adding/editing connections
-│       │   ├── scp_manager.go                    # SCP/SFTP File Manager component
-│       │   ├── storage_select.go                 # Credential storage selection (Local/Bitwarden)
-│       │   ├── terminal.go                       # Terminal component for SSH sessions
-│       │   ├── vterm.go                          # Virtual terminal component integrated inside Bubble Tea
-│       │   └── vterm_test.go                     # Virtual terminal tests
-│       ├── connection_handler.go                 # Connection lifecycle management
-│       ├── model.go                              # Main UI model and state
-│       ├── update.go                             # Update logic for UI events
-│       └── view.go                               # View rendering logic
+│       │   ├── bitwarden_collection_list.go        # Bitwarden collection picker.
+│       │   ├── bitwarden_config.go                 # Bitwarden CLI configuration form.
+│       │   ├── bitwarden_login_form.go             # Bitwarden login UI.
+│       │   ├── bitwarden_organization_list.go      # Organization select for vault.
+│       │   ├── bitwarden_unlock_form.go            # Bitwarden vault unlock UI.
+│       │   ├── connection_list.go                  # List and picker of SSH connections.
+│       │   ├── delete_confirmation.go              # Confirm deletion UI dialog.
+│       │   ├── form.go                             # Common connection add/edit form.
+│       │   ├── scp_manager.go                      # SCP/SFTP dual pane file manager.
+│       │   ├── ssh_passphrase_form.go              # UI for passphrase input.
+│       │   ├── storage_select.go                   # Local vs Bitwarden credential storage UI.
+│       │   ├── styles.go                           # Common style definitions.
+│       │   ├── terminal.go                         # Terminal emulation inside TUI.
+│       │   ├── terminal_test.go                    # Terminal tests.
+│       │   ├── vterm.go                            # Bubble Tea virtual terminal emulator.
+│       │   ├── vterm_color_test.go                 # Color support tests for terminal.
+│       │   └── vterm_test.go                       # Virtual terminal tests.
+│       ├── connection_handler.go                   # Connection lifecycle management logic.
+│       ├── model.go                                # Main UI state model: app state, active component, etc.
+│       ├── update.go                               # Update logic for events in the UI.
+│       └── view.go                                 # UI rendering logic.
+│
 ├── pkg/
 │   └── sshutil/
-│       └── auth.go                               # Authentication utilities
-├── go.mod                                        # Go module dependencies
-├── go.sum                                        # Go module checksums
-├── package.json                                  # npm package configuration
-├── index.js                                      # npm entry point
-├── install.js                                    # npm post-install script
-├── LICENSE                                       # MIT License
-├── CONTRIBUTING.md                               # Contribution guidelines
-├── FLOW.md                                       # Application flow documentation
-└── README.md                                     # This file
+│       ├── auth.go                   # Authentication helper/utilities (e.g. key parsing).
+│       └── list_ssh_keys.go          # Helpers to find and list private SSH keys.
+│
+├── demo.sh                    # Shell script to demo app or CLI usage.
+├── go.mod                     # Go module dependencies.
+├── go.sum                     # Go module package checksums.
+├── index.js                   # Node.js entry point for npm package: downloads binary, runs app.
+├── install.js                 # Node.js install script auto-downloads proper binary for platform/arch.
+├── LICENSE                    # MIT License.
+├── package.json               # npm package metadata.
+├── FLOW.md                    # Detailed flow/features/architecture of application.
+├── CONTRIBUTING.md            # Contribution guidelines.
+├── IMPLEMENTATION.md          # Technical implementation details.
+├── MIGRATION.md               # Migration instructions for config/data upgrade between versions.
+├── COLOR_SUPPORT.md           # Documentation for color/terminal support.
+├── logo.svg                   # Project logo.
+├── media/
+│   ├── demo.gif               # Demo GIF for UI.
+│   └── demo.mp4               # Demo video for UI.
+└── README.md                  # Main documentation.
+
 ```
 
 **Note:**  
