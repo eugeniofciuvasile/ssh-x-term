@@ -1235,13 +1235,13 @@ func (s *SCPManager) downloadFile() tea.Cmd {
 	}
 
 	file := s.remotePanel.Files[s.remotePanel.SelectedIdx]
-	if file.IsDir {
-		s.error = "Cannot download directories (yet)"
-		return nil
-	}
 
 	s.operationInProgress = true
-	s.status = "Downloading " + file.Name + "..."
+	if file.IsDir {
+		s.status = "Downloading directory " + file.Name + " (recursive)..."
+	} else {
+		s.status = "Downloading " + file.Name + "..."
+	}
 
 	remotePath := filepath.Join(s.remotePanel.Path, file.Name)
 	localPath := filepath.Join(s.localPanel.Path, file.Name)
@@ -1267,13 +1267,13 @@ func (s *SCPManager) uploadFile() tea.Cmd {
 	}
 
 	file := s.localPanel.Files[s.localPanel.SelectedIdx]
-	if file.IsDir {
-		s.error = "Cannot upload directories (yet)"
-		return nil
-	}
 
 	s.operationInProgress = true
-	s.status = "Uploading " + file.Name + "..."
+	if file.IsDir {
+		s.status = "Uploading directory " + file.Name + " (recursive)..."
+	} else {
+		s.status = "Uploading " + file.Name + "..."
+	}
 
 	localPath := filepath.Join(s.localPanel.Path, file.Name)
 	remotePath := filepath.Join(s.remotePanel.Path, file.Name)

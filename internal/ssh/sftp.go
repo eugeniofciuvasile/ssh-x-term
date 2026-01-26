@@ -171,6 +171,17 @@ func (s *SFTPClient) DownloadFile(remotePath, localPath string) error {
 		return fmt.Errorf("SFTP client not connected")
 	}
 
+	// Check if remote path is a directory
+	info, err := s.sftpClient.Stat(remotePath)
+	if err != nil {
+		return fmt.Errorf("failed to stat remote path: %w", err)
+	}
+
+	if info.IsDir() {
+		// Download directory recursively
+		return s.DownloadDir(remotePath, localPath)
+	}
+
 	// Open remote file
 	remoteFile, err := s.sftpClient.Open(remotePath)
 	if err != nil {
@@ -194,10 +205,75 @@ func (s *SFTPClient) DownloadFile(remotePath, localPath string) error {
 	return nil
 }
 
+// DownloadDir recursively downloads a directory from remote to local
+func (s *SFTPClient) DownloadDir(remotePath, localPath string) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("SFTP client not connected")
+	}
+
+	// Create the local directory
+	err := os.MkdirAll(localPath, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create local directory: %w", err)
+	}
+
+	// Read remote directory contents
+	entries, err := s.sftpClient.ReadDir(remotePath)
+	if err != nil {
+		return fmt.Errorf("failed to read remote directory: %w", err)
+	}
+
+	// Download each entry
+	for _, entry := range entries {
+		remoteEntryPath := filepath.Join(remotePath, entry.Name())
+		localEntryPath := filepath.Join(localPath, entry.Name())
+
+		if entry.IsDir() {
+			// Recursively download subdirectory
+			if err := s.DownloadDir(remoteEntryPath, localEntryPath); err != nil {
+				return err
+			}
+		} else {
+			// Download file
+			remoteFile, err := s.sftpClient.Open(remoteEntryPath)
+			if err != nil {
+				return fmt.Errorf("failed to open remote file %s: %w", entry.Name(), err)
+			}
+
+			localFile, err := os.Create(localEntryPath)
+			if err != nil {
+				remoteFile.Close()
+				return fmt.Errorf("failed to create local file %s: %w", entry.Name(), err)
+			}
+
+			_, err = io.Copy(localFile, remoteFile)
+			remoteFile.Close()
+			localFile.Close()
+
+			if err != nil {
+				return fmt.Errorf("failed to download file %s: %w", entry.Name(), err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // UploadFile uploads a file from local to remote
 func (s *SFTPClient) UploadFile(localPath, remotePath string) error {
 	if s.sftpClient == nil {
 		return fmt.Errorf("SFTP client not connected")
+	}
+
+	// Check if local path is a directory
+	info, err := os.Stat(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat local path: %w", err)
+	}
+
+	if info.IsDir() {
+		// Upload directory recursively
+		return s.UploadDir(localPath, remotePath)
 	}
 
 	// Open local file
@@ -218,6 +294,60 @@ func (s *SFTPClient) UploadFile(localPath, remotePath string) error {
 	_, err = io.Copy(remoteFile, localFile)
 	if err != nil {
 		return fmt.Errorf("failed to upload file: %w", err)
+	}
+
+	return nil
+}
+
+// UploadDir recursively uploads a directory from local to remote
+func (s *SFTPClient) UploadDir(localPath, remotePath string) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("SFTP client not connected")
+	}
+
+	// Create the remote directory
+	err := s.sftpClient.MkdirAll(remotePath)
+	if err != nil {
+		return fmt.Errorf("failed to create remote directory: %w", err)
+	}
+
+	// Read local directory contents
+	entries, err := os.ReadDir(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to read local directory: %w", err)
+	}
+
+	// Upload each entry
+	for _, entry := range entries {
+		localEntryPath := filepath.Join(localPath, entry.Name())
+		remoteEntryPath := filepath.Join(remotePath, entry.Name())
+
+		if entry.IsDir() {
+			// Recursively upload subdirectory
+			if err := s.UploadDir(localEntryPath, remoteEntryPath); err != nil {
+				return err
+			}
+		} else {
+			// Upload file
+			localFile, err := os.Open(localEntryPath)
+			if err != nil {
+				return fmt.Errorf("failed to open local file %s: %w", entry.Name(), err)
+			}
+
+			remoteFile, err := s.sftpClient.Create(remoteEntryPath)
+			if err != nil {
+				localFile.Close()
+				return fmt.Errorf("failed to create remote file %s: %w", entry.Name(), err)
+			}
+
+			_, err = io.Copy(remoteFile, localFile)
+			localFile.Close()
+			remoteFile.Close()
+
+			if err != nil {
+				return fmt.Errorf("failed to upload file %s: %w", entry.Name(), err)
+			}
+		}
 	}
 
 	return nil
