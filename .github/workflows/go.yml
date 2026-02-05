@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write  # Required to trigger other workflows
     outputs:
       new_tag: ${{ steps.tag_step.outputs.new_tag }}
     steps:
