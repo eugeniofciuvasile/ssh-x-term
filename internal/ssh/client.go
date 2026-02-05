@@ -104,6 +104,7 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 			keyBytes, err := os.ReadFile(keyFile)
 			if err != nil {
 				log.Printf("[NewClient] Failed to read key file %s: %v", keyFile, err)
+				// Don't fail - SSH agent might have the key
 			} else {
 				// Try standard key parsing
 				signer, err := ssh.ParsePrivateKey(keyBytes)
@@ -119,14 +120,18 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 							signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(connConfig.Password))
 							if err != nil {
 								log.Printf("[NewClient] Failed to parse encrypted key with provided passphrase: %v", err)
-								// Return PassphraseRequiredError so UI can prompt for correct passphrase
+								// Don't fail here - SSH agent might have this key loaded
+								log.Printf("[NewClient] Will rely on SSH agent if available")
+							} else {
+								log.Printf("[NewClient] Successfully parsed key with passphrase")
+							}
+						} else {
+							// No passphrase provided - but SSH agent might have the key
+							log.Printf("[NewClient] No passphrase provided, will rely on SSH agent if available")
+							// Only fail if SSH agent is also not available
+							if len(authMethods) == 0 {
 								return nil, &PassphraseRequiredError{KeyFile: keyFile}
 							}
-							log.Printf("[NewClient] Successfully parsed key with passphrase")
-						} else {
-							// No passphrase provided - return error so UI can prompt
-							log.Printf("[NewClient] No passphrase provided, returning PassphraseRequiredError")
-							return nil, &PassphraseRequiredError{KeyFile: keyFile}
 						}
 					} else {
 						log.Printf("[NewClient] Failed to parse private key (not a passphrase issue): %v", err)

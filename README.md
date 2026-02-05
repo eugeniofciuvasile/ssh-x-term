@@ -19,8 +19,24 @@
 **SSH-X-Term** is a powerful terminal-based SSH client with a TUI (Text User Interface) built on [Bubble Tea](https://github.com/charmbracelet/bubbletea).  
 It seamlessly integrates **SSH connection management**, **SCP/SFTP file transfers**, and **secure credential storage** into a single, responsive interface.
 
-Credentials can be stored securely using your **local system keyring** (via [go-keyring](https://github.com/zalando/go-keyring)) or directly in your **Bitwarden vault**.  
-Cross-platform features include support for `passh` (Unix), `plink.exe` (Windows), and full `tmux` integration.
+Credentials can be stored securely using your **local system keyring** (via [go-keyring](https://github.com/zalando/go-keyring)) or directly in your **Bitwarden vault**.
+
+---
+
+> **⚠️ BREAKING CHANGE - Version 2.0+**  
+> Starting from version 2.0, SSH-X-Term uses **pure Go SSH client** instead of external tools (passh, plink, ssh command).  
+> **Old versions (< 2.0)** used external SSH clients and required `passh`/`plink.exe` installation.  
+> **New versions (>= 2.0)** have **no external dependencies** - everything is handled by the built-in Go SSH client.
+>
+> ### What Changed:
+> - ✅ **No more passh/plink** - Pure Go SSH implementation
+> - ✅ **SSH Agent support** - Automatically uses ssh-agent for key authentication
+> - ✅ **Encrypted keys** - Works with encrypted SSH keys via ssh-agent
+> - ✅ **Better compatibility** - Works on all platforms without external tools
+> - ✅ **Direct connection** - New `-c <connection-id>` flag for instant connections
+> - ✅ **xterm-256color** - Full terminal support built-in
+>
+> If you're upgrading from version < 2.0, your existing configurations will continue to work, but you can now uninstall `passh` and `plink.exe` if you wish.
 
 ---
 
@@ -38,14 +54,16 @@ Cross-platform features include support for `passh` (Unix), `plink.exe` (Windows
 
 ## 🚀 Features
 
-### ⚡ Quick Connect Mode (NEW)
+### ⚡ Quick Connect Mode (NEW in v2.0)
 Lightning-fast connection selection via CLI.
 - **Instant Access**: `sxt -l` for minimal UI connection picker
-- **Native SSH**: Connects using system SSH client directly
+- **Pure Go SSH**: Uses built-in Go SSH client (no external dependencies)
+- **Direct Connect**: `sxt -c <connection-id>` connects immediately by ID
 - **Auto-Filter**: Start typing immediately - filter activates on first keypress
 - **Smart Navigation**: Arrow keys exit filter and navigate list
 - **Compact Display**: 10 connections per page
-- **No Tmux Required**: Works in any terminal
+- **No External Tools**: No passh, plink, or ssh command needed
+- **SSH Agent Support**: Automatically uses ssh-agent for encrypted keys
 
 ### 🖥️ Integrated SSH Terminal
 Fully functional terminal emulator built entirely within the TUI.
@@ -66,10 +84,13 @@ Seamlessly transfer files without leaving the app.
 - **Bitwarden Integration**: Direct access to your vault via Bitwarden CLI.
 - **Zero Plaintext**: Passwords are **never** stored in plaintext on disk.
 
-### ⚡ Automation & Compatibility
-- **Auto-Login**: Automates password entry using `passh` (Unix) or `plink.exe` (Windows).
-- **Key Auth**: Full support for private key authentication.
-- **TMUX**: Open connections in new tmux windows automatically.
+### ⚡ Automation & Compatibility (v2.0+)
+- **Pure Go SSH**: All connections use built-in Go SSH client (no external tools needed)
+- **SSH Agent**: Automatic integration with ssh-agent for key authentication
+- **Encrypted Keys**: Full support for encrypted SSH keys via ssh-agent
+- **Password Auth**: Secure password authentication via system keyring
+- **TMUX**: Open connections in new tmux windows automatically
+- **xterm-256color**: Full terminal compatibility built-in
 
 ---
 
@@ -88,24 +109,25 @@ ssh-x-term/
 │
 ├── internal/
 │   ├── cli/                                        # Quick-connect CLI features.
-│   │   ├── connector.go                            # Handles establishing SSH connections via CLI.
-│   │   └── selector.go                             # Handles selection/picking of connections in CLI.
-│   ├── config/                                     # Manages configuration, credential, and storage subsystems.
-│   │   ├── bitwarden.go                            # Bitwarden vault integration and management via CLI.
-│   │   ├── config.go                               # Handles local config and secure keyring storage (go-keyring).
-│   │   ├── migrate.go                              # Migrates old config formats to new SSH config style.
-│   │   ├── models.go                               # Configuration data models.
-│   │   ├── pathutil.go                             # Path resolution helpers (e.g., home directory expansion).
-│   │   ├── sshconfig.go                            # SSH config file parsing, generation, and backup.
-│   │   ├── sshconfig_test.go                       # Unit tests for SSH config handling.
-│   │   └── storage.go                              # Storage provider interfaces for credentials.
-│   ├── ssh/                                        # SSH client, session, and SFTP-related code.
-│   │   ├── client.go                               # Core SSH client: connection and authentication.
-│   │   ├── session_bubbletea_unix.go               # SSH session management for Unix systems.
-│   │   ├── session_bubbletea_windows.go            # For Windows systems.
-│   │   ├── sftp.go                                 # SFTP file transfer logic.
-│   │   ├── sftp_unix.go                            # Unix-specific SFTP features.
-│   │   └── sftp_windows.go                         # Windows-specific SFTP features.
+│   │   ├── connector.go                            # Pure Go SSH client connection (v2.0+)
+│   │   └── selector.go                             # Connection selection in CLI mode
+│   ├── config/                                     # Configuration and credential management
+│   │   ├── bitwarden.go                            # Bitwarden vault integration via CLI
+│   │   ├── config.go                               # Local config and secure keyring storage
+│   │   ├── migrate.go                              # Config format migration between versions
+│   │   ├── models.go                               # Configuration data models
+│   │   ├── pathutil.go                             # Path resolution helpers
+│   │   ├── sshconfig.go                            # SSH config file parsing and generation
+│   │   ├── sshconfig_test.go                       # Unit tests for SSH config
+│   │   └── storage.go                              # Storage provider interfaces
+│   ├── ssh/                                        # Pure Go SSH client implementation (v2.0+)
+│   │   ├── client.go                               # Core SSH client with auth and keyring
+│   │   ├── interactive.go                          # Interactive terminal session (v2.0+)
+│   │   ├── session_bubbletea_unix.go               # Bubble Tea SSH session (Unix)
+│   │   ├── session_bubbletea_windows.go            # Bubble Tea SSH session (Windows)
+│   │   ├── sftp.go                                 # SFTP file transfer logic
+│   │   ├── sftp_unix.go                            # Unix-specific SFTP features
+│   │   └── sftp_windows.go                         # Windows-specific SFTP features
 │   └── ui/                                         # Bubble Tea TUI (Text UI): models, logic, and components.
 │       ├── components/
 │       │   ├── bitwarden_collection_list.go        # Bitwarden collection picker.
@@ -170,51 +192,67 @@ ssh-x-term/
 
 ## 🛠️ Prerequisites
 
-- **Go 1.24+**
-- **System Keyring** (for local storage):
+- **Go 1.24+** (for building from source)
+- **System Keyring** (for local password storage):
   - 🍎 **macOS**: Keychain (built-in)
   - 🐧 **Linux**: Secret Service API (`gnome-keyring`, `kwallet`, etc.)
   - 🪟 **Windows**: Credential Manager (built-in)
+- **SSH Agent** (optional, for encrypted key support):
+  - Run `ssh-agent` and add keys with `ssh-add` to avoid passphrase prompts
 - **External Tools**:
   - **Bitwarden CLI (`bw`)** — optional, for Bitwarden vault credential management ([install guide](https://bitwarden.com/help/cli/))
-  - **passh** — for password authentication on Unix ([compile it from here](https://github.com/clarkwang/passh))
-  - **tmux** — recommended for multi-window SSH sessions ([install guide](https://github.com/tmux/tmux/wiki/Installing))
-  - **plink.exe** — for password authentication on Windows ([download from PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html))
-  - **(Optional) ssh client** — `ssh` should be available on your system
+  - **tmux** — optional, for multi-window SSH sessions ([install guide](https://github.com/tmux/tmux/wiki/Installing))
 
-**Ensure all required binaries are available in your `$PATH`.**
+**⚠️ Note for versions < 2.0:**
+- Old versions required `passh` (Unix) and `plink.exe` (Windows) - these are **NO LONGER NEEDED** in v2.0+
+- If upgrading from v1.x, you can safely remove these tools
 
 ## 📚 System dependencies
 
-ssh-x-term requires the following system tools to be installed:
+**Version 2.0+** requires minimal system dependencies:
 
-- `tmux`
-- `passh`
+- `tmux` (optional, for multi-window sessions)
 - System keyring support (for secure local password storage)
 - `bitwarden-cli` (optional, npm package: `@bitwarden/cli`, install globally: `npm install -g @bitwarden/cli`)
+
+**⚠️ NO LONGER NEEDED in v2.0+:**
+- ~~`passh`~~ - Replaced by built-in Go SSH client
+- ~~`plink.exe`~~ - Replaced by built-in Go SSH client  
+- ~~`ssh` command~~ - Replaced by built-in Go SSH client
 
 ### Linux (Debian/Ubuntu):
 
 ```sh
 sudo apt update
 sudo apt install -y tmux gnome-keyring
-npm install -g @bitwarden/cli
-# follow github repo https://github.com/clarkwang/passh to compile passh
+npm install -g @bitwarden/cli  # optional
 ```
 
 ### macOS (with Homebrew):
 
 ```sh
-brew install tmux
-npm install -g @bitwarden/cli
-# follow github repo https://github.com/clarkwang/passh to compile passh
+brew install tmux  # optional
+npm install -g @bitwarden/cli  # optional
 ```
 
 ### Windows:
 
-- Install `tmux` and `passh` via WSL/Cygwin or use alternatives.
-- Install Bitwarden CLI with: `npm install -g @bitwarden/cli`
-- Windows Credential Manager is used by go-keyring and is built-in.
+- Install `tmux` via WSL if needed (optional)
+- Install Bitwarden CLI with: `npm install -g @bitwarden/cli` (optional)
+- Windows Credential Manager is used by go-keyring and is built-in
+
+### SSH Agent Setup (for encrypted keys):
+
+```sh
+# Start ssh-agent
+eval $(ssh-agent)
+
+# Add your encrypted keys
+ssh-add ~/.ssh/id_rsa
+ssh-add ~/.ssh/id_ed25519
+
+# Now sxt will use these keys without asking for passphrases!
+```
 
 ---
 
@@ -306,18 +344,22 @@ This will:
 
 ### Quick Connect Mode (CLI)
 
-**Fast connection selection without the full TUI**:
+**Fast connection selection without the full TUI** (v2.0+):
 
 ```sh
 # First time: Initialize SSH-X-Term
 sxt -i
 
-# Then use quick connect
+# Quick connect with selection menu
 sxt -l
+
+# Direct connect by connection ID (instant, no menu)
+sxt -c <connection-id>
 ```
 
-**Note**: You must run `sxt -i` once before using `sxt -l` to initialize and migrate your configuration.
+**Note**: You must run `sxt -i` once before using `sxt -l` or `sxt -c` to initialize and migrate your configuration.
 
+#### Quick Connect (`sxt -l`)
 This displays a minimal connection list where you can:
 - **Start typing immediately** to filter connections by name
 - Use **arrow keys** to navigate (exits filter mode and navigates)
@@ -326,19 +368,37 @@ This displays a minimal connection list where you can:
 - Press **Ctrl+C** to quit immediately
 - **10 connections per page** with pagination
 
-The selected connection opens in your current terminal using:
-- **Unix/Linux/macOS**: Native `ssh` command (with `passh` for password auth)
-- **Windows**: Native `ssh` or `plink.exe` (for password auth)
+#### Direct Connect (`sxt -c <id>`)
+Connect instantly to a saved connection by ID:
+```sh
+# Get connection ID from error message or SSH config
+sxt -c sky-central-1_1234567890
 
-**Features**:
-- ✅ Auto-filter on keypress (no need to press `/`)
-- ✅ Arrow keys exit filter and navigate
-- ✅ Compact display (10 items per page)
-- ✅ Reads from your existing saved connections
-- ✅ Uses system keyring for password retrieval
-- ✅ Direct SSH client execution (no Bubble Tea terminal emulation)
-- ✅ Supports both password and key-based authentication
-- ✅ Works outside of tmux
+# Or use tab completion if your shell supports it
+sxt -c <tab>
+```
+
+**Features** (v2.0+):
+- ✅ **Pure Go SSH** - No external tools needed (passh, plink, ssh)
+- ✅ **SSH Agent integration** - Automatically uses ssh-agent for encrypted keys
+- ✅ **Password from keyring** - Retrieves passwords securely from system keyring
+- ✅ **Auto-filter on keypress** (no need to press `/`)
+- ✅ **Arrow keys exit filter and navigate**
+- ✅ **Full terminal support** - xterm-256color built-in
+- ✅ **Window resize** - Handles terminal resize properly
+- ✅ **Works everywhere** - No tmux requirement, any terminal
+
+**Using with encrypted SSH keys:**
+```sh
+# Add your keys to ssh-agent once
+eval $(ssh-agent)
+ssh-add ~/.ssh/id_rsa
+
+# Now connections work without passphrase prompts!
+sxt -l
+# or
+sxt -c <connection-id>
+```
 
 ---
 

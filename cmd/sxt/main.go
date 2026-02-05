@@ -58,7 +58,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Please run 'sxt -i' first to initialize and migrate your configuration.")
 			os.Exit(1)
 		}
-		cli.RunDirectConnect(*connectFlag)
+		runDirectConnect(*connectFlag)
 		return
 	}
 
@@ -223,3 +223,42 @@ func runInitialization() {
 	fmt.Println("  • sxt -l      - Quick connect mode")
 	fmt.Println("  • sxt -c <id> - Direct connect by ID")
 }
+
+func runDirectConnect(connectionID string) {
+	// Load SSH config
+	sshConfigManager, err := config.NewSSHConfigManager()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading SSH config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := sshConfigManager.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading connections: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Get the connection by ID
+	conn, found := sshConfigManager.GetConnection(connectionID)
+	if !found {
+		fmt.Fprintf(os.Stderr, "Error: Connection with ID '%s' not found.\n", connectionID)
+		fmt.Fprintln(os.Stderr, "\nAvailable connections:")
+		
+		connections := sshConfigManager.ListConnections()
+		if len(connections) == 0 {
+			fmt.Fprintln(os.Stderr, "  (none)")
+		} else {
+			for _, c := range connections {
+				fmt.Fprintf(os.Stderr, "  • %s (%s) - %s@%s:%d\n", c.Name, c.ID, c.Username, c.Host, c.Port)
+			}
+		}
+		os.Exit(1)
+	}
+
+	// Connect using golang SSH client (cli.ConnectDirect uses ssh.ConnectInteractive)
+	fmt.Printf("Connecting to %s...\n", conn.Name)
+	if err := cli.ConnectDirect(conn); err != nil {
+		fmt.Fprintf(os.Stderr, "Connection failed: %v\n", err)
+		os.Exit(1)
+	}
+}
+
