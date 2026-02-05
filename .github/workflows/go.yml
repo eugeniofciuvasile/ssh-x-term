@@ -76,12 +76,16 @@ jobs:
 
       - name: Build Go binaries for multiple platforms
         run: |
+          VERSION="${{ steps.get_tag.outputs.new_tag }}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X main.Version=$VERSION -X main.BuildDate=$BUILD_DATE"
+          
           mkdir -p dist
-          GOOS=linux GOARCH=amd64 go build -o dist/ssh-x-term-linux-amd64 ./cmd/sxt
-          GOOS=windows GOARCH=amd64 go build -o dist/ssh-x-term-windows-amd64.exe ./cmd/sxt
-          GOOS=darwin GOARCH=amd64 go build -o dist/ssh-x-term-darwin-amd64 ./cmd/sxt
-          GOOS=linux GOARCH=arm64 go build -o dist/ssh-x-term-linux-arm64 ./cmd/sxt
-          GOOS=darwin GOARCH=arm64 go build -o dist/ssh-x-term-darwin-arm64 ./cmd/sxt
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/ssh-x-term-linux-amd64 ./cmd/sxt
+          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/ssh-x-term-windows-amd64.exe ./cmd/sxt
+          GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/ssh-x-term-darwin-amd64 ./cmd/sxt
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/ssh-x-term-linux-arm64 ./cmd/sxt
+          GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/ssh-x-term-darwin-arm64 ./cmd/sxt
 
       - name: Generate SHA256 checksums
         run: |

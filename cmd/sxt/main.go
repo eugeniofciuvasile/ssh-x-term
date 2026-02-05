@@ -14,12 +14,33 @@ import (
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui"
 )
 
+var (
+	// Version is set during build time
+	Version = "dev"
+	// BuildDate is set during build time
+	BuildDate = "unknown"
+)
+
 func main() {
 	// Parse command-line flags
 	listFlag := flag.Bool("l", false, "List and select from saved SSH connections")
 	initFlag := flag.Bool("i", false, "Initialize SSH config and perform first-time migration")
 	connectFlag := flag.String("c", "", "Connect directly to a saved connection by ID using golang SSH client")
+	versionFlag := flag.Bool("v", false, "Show version information")
+	helpFlag := flag.Bool("h", false, "Show help")
 	flag.Parse()
+
+	// Handle -v flag for version
+	if *versionFlag {
+		fmt.Printf("ssh-x-term version %s (built on %s)\n", Version, BuildDate)
+		os.Exit(0)
+	}
+
+	// Handle -h flag for help
+	if *helpFlag {
+		printHelp()
+		os.Exit(0)
+	}
 
 	logfilePath := os.Getenv("SSH_X_TERM_LOG")
 	if logfilePath == "" {
@@ -222,6 +243,7 @@ func runInitialization() {
 	fmt.Println("  • sxt         - Launch full TUI")
 	fmt.Println("  • sxt -l      - Quick connect mode")
 	fmt.Println("  • sxt -c <id> - Direct connect by ID")
+	fmt.Println("  • sxt -v 	 	 - Show version")
 }
 
 func runDirectConnect(connectionID string) {
@@ -260,4 +282,28 @@ func runDirectConnect(connectionID string) {
 		fmt.Fprintf(os.Stderr, "Connection failed: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func printHelp() {
+	fmt.Println("ssh-x-term - TUI to handle multiple SSH connections simultaneously")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Printf("  %s [flags]\n", os.Args[0])
+	fmt.Println()
+	fmt.Println("Flags:")
+	fmt.Println("  -h           Show this help message")
+	fmt.Println("  -v           Show version information")
+	fmt.Println("  -i           Initialize SSH config and perform first-time migration")
+	fmt.Println("  -l           List and select from saved SSH connections")
+	fmt.Println("  -c <id>      Connect directly to a saved connection by ID")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Println("  sxt              Start the interactive TUI")
+	fmt.Println("  sxt -v           Show version")
+	fmt.Println("  sxt -h           Show this help")
+	fmt.Println("  sxt -i           Initialize configuration")
+	fmt.Println("  sxt -l           Quick connect mode")
+	fmt.Println("  sxt -c myserver  Connect to 'myserver'")
+	fmt.Println()
+	fmt.Println("For more information, visit: https://github.com/eugeniofciuvasile/ssh-x-term")
 }
