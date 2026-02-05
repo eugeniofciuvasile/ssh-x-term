@@ -13,17 +13,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout main repository
-        uses: actions/checkout@v4
-        with:
-          path: main-repo
-
       - name: Checkout homebrew-tap repository
         uses: actions/checkout@v4
         with:
           repository: eugeniofciuvasile/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-tap
 
       - name: Get version info
         id: version
@@ -58,37 +52,60 @@ jobs:
           echo "linux_amd64=$SHA_LINUX_AMD64" >> $GITHUB_OUTPUT
           echo "linux_arm64=$SHA_LINUX_ARM64" >> $GITHUB_OUTPUT
 
-      - name: Update formula in main repository
+      - name: Generate formula
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
           
-          cd main-repo
-          sed -i "s/version \".*\"/version \"$VERSION\"/" homebrew/ssh-x-term.rb
-          sed -i "s|/v[0-9.]\+/|/$TAG/|g" homebrew/ssh-x-term.rb
-          sed -i "s/PLACEHOLDER_AMD64_SHA256/${{ steps.checksums.outputs.darwin_amd64 }}/" homebrew/ssh-x-term.rb
-          sed -i "s/PLACEHOLDER_ARM64_SHA256/${{ steps.checksums.outputs.darwin_arm64 }}/" homebrew/ssh-x-term.rb
-          sed -i "s/PLACEHOLDER_LINUX_AMD64_SHA256/${{ steps.checksums.outputs.linux_amd64 }}/" homebrew/ssh-x-term.rb
-          sed -i "s/PLACEHOLDER_LINUX_ARM64_SHA256/${{ steps.checksums.outputs.linux_arm64 }}/" homebrew/ssh-x-term.rb
+          cat > Formula/ssh-x-term.rb << 'FORMULA_EOF'
+class SshXTerm < Formula
+  desc "TUI to handle multiple SSH connections simultaneously"
+  homepage "https://github.com/eugeniofciuvasile/ssh-x-term"
+  version "VERSION_PLACEHOLDER"
+  license "MIT"
 
-      - name: Update formula in tap repository
-        run: |
-          cp main-repo/homebrew/ssh-x-term.rb homebrew-tap/Formula/ssh-x-term.rb
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/eugeniofciuvasile/ssh-x-term/releases/download/TAG_PLACEHOLDER/ssh-x-term-darwin-arm64"
+      sha256 "DARWIN_ARM64_SHA"
+    else
+      url "https://github.com/eugeniofciuvasile/ssh-x-term/releases/download/TAG_PLACEHOLDER/ssh-x-term-darwin-amd64"
+      sha256 "DARWIN_AMD64_SHA"
+    end
+  end
 
-      - name: Commit and push to main repository
-        run: |
-          cd main-repo
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add homebrew/ssh-x-term.rb
-          git commit -m "chore: update Homebrew formula to ${{ steps.version.outputs.tag }} [skip ci]" || echo "No changes to commit"
-          git push origin main
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/eugeniofciuvasile/ssh-x-term/releases/download/TAG_PLACEHOLDER/ssh-x-term-linux-arm64"
+      sha256 "LINUX_ARM64_SHA"
+    else
+      url "https://github.com/eugeniofciuvasile/ssh-x-term/releases/download/TAG_PLACEHOLDER/ssh-x-term-linux-amd64"
+      sha256 "LINUX_AMD64_SHA"
+    end
+  end
+
+  def install
+    bin.install Dir["ssh-x-term-*"].first => "sxt"
+  end
+
+  test do
+    system "#{bin}/sxt", "--version"
+  end
+end
+FORMULA_EOF
+
+          # Replace placeholders
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/" Formula/ssh-x-term.rb
+          sed -i "s/TAG_PLACEHOLDER/$TAG/g" Formula/ssh-x-term.rb
+          sed -i "s/DARWIN_AMD64_SHA/${{ steps.checksums.outputs.darwin_amd64 }}/" Formula/ssh-x-term.rb
+          sed -i "s/DARWIN_ARM64_SHA/${{ steps.checksums.outputs.darwin_arm64 }}/" Formula/ssh-x-term.rb
+          sed -i "s/LINUX_AMD64_SHA/${{ steps.checksums.outputs.linux_amd64 }}/" Formula/ssh-x-term.rb
+          sed -i "s/LINUX_ARM64_SHA/${{ steps.checksums.outputs.linux_arm64 }}/" Formula/ssh-x-term.rb
 
       - name: Commit and push to tap repository
         run: |
-          cd homebrew-tap
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add Formula/ssh-x-term.rb
-          git commit -m "chore: update ssh-x-term formula to ${{ steps.version.outputs.tag }}"
+          git commit -m "chore: update ssh-x-term to ${{ steps.version.outputs.tag }}"
           git push origin main
