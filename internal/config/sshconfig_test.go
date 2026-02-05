@@ -226,7 +226,7 @@ Host managed1
 	}
 
 	content := string(data)
-	
+
 	// Count Host entries
 	hostCount := 0
 	sxtIDCount := 0
@@ -242,7 +242,7 @@ Host managed1
 	if hostCount != 2 {
 		t.Errorf("Expected 2 Host entries, got %d", hostCount)
 	}
-	
+
 	if sxtIDCount != 2 {
 		t.Errorf("Expected 2 entries with sxt:id, got %d. All entries should have metadata after save.", sxtIDCount)
 	}

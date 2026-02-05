@@ -1150,7 +1150,7 @@ func (s *SCPManager) enterDirectory() tea.Cmd {
 	}
 
 	newPath := filepath.Join(panel.Path, file.Name)
-	
+
 	s.operationInProgress = true
 	s.status = "Entering directory..."
 

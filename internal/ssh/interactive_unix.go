@@ -3,6 +3,7 @@
 package ssh
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/zalando/go-keyring"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -25,7 +27,31 @@ func ConnectInteractive(connConfig config.SSHConnection) error {
 	// Create SSH client (this handles keyring password retrieval and SSH agent)
 	client, err := NewClient(connConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create SSH client: %w", err)
+		// Check if passphrase is required for the key
+		var passphraseErr *PassphraseRequiredError
+		if errors.As(err, &passphraseErr) {
+			// Key requires passphrase - prompt user
+			fmt.Fprintf(os.Stderr, "Key file %s requires a passphrase.\n", passphraseErr.KeyFile)
+			fmt.Fprintf(os.Stderr, "Enter passphrase: ")
+
+			passphrase, err := term.ReadPassword(int(os.Stdin.Fd()))
+			fmt.Fprintf(os.Stderr, "\n")
+			if err != nil {
+				return fmt.Errorf("failed to read passphrase: %w", err)
+			}
+
+			// Retry connection with passphrase
+			connConfig.Password = string(passphrase)
+			client, err = NewClient(connConfig)
+			if err != nil {
+				return fmt.Errorf("failed to create SSH client: %w", err)
+			}
+
+			// Save passphrase to keyring for future use
+			savePassphraseToKeyring(connConfig.ID, string(passphrase))
+		} else {
+			return fmt.Errorf("failed to create SSH client: %w", err)
+		}
 	}
 	defer client.Close()
 
@@ -138,4 +164,17 @@ func ConnectInteractive(connConfig config.SSHConnection) error {
 
 	log.Printf("[ConnectInteractive] Session closed")
 	return nil
+}
+
+// savePassphraseToKeyring saves the passphrase to the system keyring
+func savePassphraseToKeyring(connectionID, passphrase string) {
+	keyID := "passphrase:" + connectionID
+	err := keyring.Set("ssh-x-term", keyID, passphrase)
+	if err != nil {
+		log.Printf("[savePassphraseToKeyring] Failed to save passphrase to keyring: %v", err)
+		fmt.Fprintf(os.Stderr, "Note: Could not save passphrase to keyring (will be prompted again next time)\n")
+	} else {
+		log.Printf("[savePassphraseToKeyring] Saved passphrase for connection %s to keyring", connectionID)
+		fmt.Fprintf(os.Stderr, "Passphrase saved to keyring.\n")
+	}
 }

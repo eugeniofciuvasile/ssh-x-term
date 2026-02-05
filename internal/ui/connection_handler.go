@@ -48,7 +48,7 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 		m.errorMessage = fmt.Sprintf("Failed to write key file: %s", err)
 		return nil
 	}
-	
+
 	// Update connection's KeyFile to point to the xterm_keys path if we created one
 	if keyPath != "" {
 		conn.KeyFile = keyPath
@@ -56,7 +56,7 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 		// If a passphrase is needed, the SSH client will trigger the passphrase form
 		conn.Password = ""
 	}
-	
+
 	sshArgs := m.prepareSSHArgs(conn, keyPath)
 	userHost := fmt.Sprintf("%s@%s", conn.Username, conn.Host)
 
@@ -131,10 +131,18 @@ func (m *Model) launchTmuxWindow(conn *config.SSHConnection, sshArgs []string) {
 		execPath = "sxt" // Fallback to assuming it's in PATH
 	}
 
-	// Use sxt -c with connection ID instead of ssh command
-	sxtCommand := fmt.Sprintf("%s -c %s", execPath, conn.ID)
+	// Build command that preserves SSH_AUTH_SOCK
+	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
+	var sxtCommand string
+	if sshAuthSock != "" {
+		// Export SSH_AUTH_SOCK in the new window's environment
+		sxtCommand = fmt.Sprintf("export SSH_AUTH_SOCK='%s' && %s -c %s", sshAuthSock, execPath, conn.ID)
+	} else {
+		sxtCommand = fmt.Sprintf("%s -c %s", execPath, conn.ID)
+	}
+
 	windowName := fmt.Sprintf("%s@%s:%d - %s", conn.Username, conn.Host, conn.Port, conn.Name)
-	
+
 	cmd := exec.Command("tmux", "new-window", "-n", windowName, sxtCommand)
 	if err := cmd.Start(); err != nil {
 		log.Printf("Error launching tmux window: %v", err)
@@ -149,8 +157,17 @@ func (m *Model) launchWindowsTerminal(conn *config.SSHConnection, sshArgs []stri
 		execPath = "sxt.exe" // Fallback to assuming it's in PATH
 	}
 
-	// Use sxt -c with connection ID instead of ssh/plink command
+	// Build command that preserves SSH_AUTH_SOCK (for WSL integration scenarios)
+	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
+
+	// Use sxt -c with connection ID
 	cmd := exec.Command("cmd", "/C", "start", "", execPath, "-c", conn.ID)
+
+	// If SSH_AUTH_SOCK is set, pass it to the new process
+	if sshAuthSock != "" {
+		cmd.Env = append(os.Environ(), fmt.Sprintf("SSH_AUTH_SOCK=%s", sshAuthSock))
+	}
+
 	if err := cmd.Start(); err != nil {
 		log.Printf("Error launching terminal: %v", err)
 	}

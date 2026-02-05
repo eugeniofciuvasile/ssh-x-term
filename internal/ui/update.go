@@ -273,7 +273,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.connectionList = model.(*components.ConnectionList)
 					return m, cmd
 				}
-				
+
 				listModel := m.connectionList.List()
 				if listModel != nil && listModel.FilterState() == list.Filtering {
 					newList, cmd := listModel.Update(msg)

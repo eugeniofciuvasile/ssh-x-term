@@ -14,7 +14,10 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
-const keyringService = "ssh-x-term"
+const (
+	keyringService          = "ssh-x-term"
+	keyringPassphrasePrefix = "passphrase:"
+)
 
 // PassphraseRequiredError indicates that a passphrase is needed to decrypt the SSH key
 type PassphraseRequiredError struct {
@@ -57,6 +60,7 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 
 	// Prepare Auth Methods
 	var authMethods []ssh.AuthMethod
+	var agentAuthAvailable bool
 
 	// 1. SSH Agent Support (Attempt this first for keys)
 	if socket := os.Getenv("SSH_AUTH_SOCK"); socket != "" && !connConfig.UsePassword {
@@ -65,6 +69,7 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 		if conn, err := net.Dial("unix", socket); err == nil {
 			agentClient := agent.NewClient(conn)
 			authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
+			agentAuthAvailable = true
 			log.Printf("[NewClient] Added SSH agent auth method")
 		} else {
 			log.Printf("[NewClient] Failed to connect to SSH agent: %v", err)
@@ -120,17 +125,38 @@ func NewClient(connConfig config.SSHConnection) (*Client, error) {
 							signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(connConfig.Password))
 							if err != nil {
 								log.Printf("[NewClient] Failed to parse encrypted key with provided passphrase: %v", err)
-								// Don't fail here - SSH agent might have this key loaded
+								// Passphrase was wrong - return error so it can be re-prompted
+								if !agentAuthAvailable {
+									return nil, &PassphraseRequiredError{KeyFile: keyFile}
+								}
 								log.Printf("[NewClient] Will rely on SSH agent if available")
 							} else {
 								log.Printf("[NewClient] Successfully parsed key with passphrase")
 							}
 						} else {
-							// No passphrase provided - but SSH agent might have the key
-							log.Printf("[NewClient] No passphrase provided, will rely on SSH agent if available")
-							// Only fail if SSH agent is also not available
-							if len(authMethods) == 0 {
-								return nil, &PassphraseRequiredError{KeyFile: keyFile}
+							// No passphrase provided - check keyring for cached passphrase
+							log.Printf("[NewClient] No passphrase provided, checking keyring for connection ID: %s", connConfig.ID)
+							cachedPassphrase, err := keyring.Get(keyringService, keyringPassphrasePrefix+connConfig.ID)
+							if err == nil && cachedPassphrase != "" {
+								log.Printf("[NewClient] Found cached passphrase in keyring, attempting to use it")
+								signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(cachedPassphrase))
+								if err != nil {
+									log.Printf("[NewClient] Cached passphrase is invalid: %v", err)
+									// Cached passphrase is wrong - need to prompt for new one
+									if !agentAuthAvailable {
+										return nil, &PassphraseRequiredError{KeyFile: keyFile}
+									}
+									log.Printf("[NewClient] Will rely on SSH agent if available")
+								} else {
+									log.Printf("[NewClient] Successfully parsed key with cached passphrase")
+								}
+							} else {
+								// No cached passphrase - but SSH agent might have the key
+								log.Printf("[NewClient] No cached passphrase found, will rely on SSH agent if available")
+								// Only fail if SSH agent is also not available
+								if !agentAuthAvailable {
+									return nil, &PassphraseRequiredError{KeyFile: keyFile}
+								}
 							}
 						}
 					} else {

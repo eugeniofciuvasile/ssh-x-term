@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	sshConfigFileName = "config"
-	sshKeyringService = "ssh-x-term"
-	sxtCommentPrefix  = "#sxt:"
+	sshConfigFileName   = "config"
+	sshKeyringService   = "ssh-x-term"
+	sxtCommentPrefix    = "#sxt:"
 	migrationMarkerFile = ".migration_done"
 )
 
@@ -116,7 +116,7 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 
 			// Start new connection - default to password auth unless key file is found
 			currentConn = &SSHConnection{
-				Port:        22,   // Default SSH port
+				Port:        22,    // Default SSH port
 				HostPattern: value, // Store the Host pattern
 				UsePassword: true,  // Default to password auth
 			}
@@ -218,7 +218,7 @@ func (scm *SSHConfigManager) writeSSHConfig() error {
 	// Write all connections with sxt metadata
 	for i := range scm.Config.Connections {
 		conn := &scm.Config.Connections[i]
-		
+
 		// Ensure ID exists
 		if conn.ID == "" {
 			conn.ID = generateID()
@@ -256,7 +256,7 @@ func (scm *SSHConfigManager) writeSSHConfig() error {
 			}
 		}
 		fmt.Fprintf(writer, "Host %s\n", hostPattern)
-		
+
 		if conn.Host != "" {
 			fmt.Fprintf(writer, "    HostName %s\n", conn.Host)
 		}
@@ -380,11 +380,11 @@ func (scm *SSHConfigManager) Load() error {
 
 	sxtConfigDir := filepath.Join(homeDir, ".config", "ssh-x-term")
 	migrationMarkerPath := filepath.Join(sxtConfigDir, migrationMarkerFile)
-	
+
 	if _, err := os.Stat(migrationMarkerPath); os.IsNotExist(err) {
 		// First load - perform migration
 		log.Println("First load detected, performing initial migration...")
-		
+
 		// Create backup before migration
 		if _, err := os.Stat(scm.ConfigPath); err == nil && len(scm.Config.Connections) > 0 {
 			backupPath := fmt.Sprintf("%s.backup.%s", scm.ConfigPath, getTimestamp())
@@ -398,7 +398,7 @@ func (scm *SSHConfigManager) Load() error {
 		// Try to recover passwords for all connections
 		for i := range scm.Config.Connections {
 			conn := &scm.Config.Connections[i]
-			
+
 			// Ensure ID exists
 			if conn.ID == "" {
 				conn.ID = generateID()
@@ -464,9 +464,9 @@ func getTimestamp() string {
 func tryRecoverPassword(conn SSHConnection) string {
 	// Try strategies in order of likelihood
 	strategies := []string{
-		conn.ID,                                    // Original ID
-		conn.HostPattern,                           // Host pattern
-		conn.Host,                                  // Hostname
+		conn.ID,          // Original ID
+		conn.HostPattern, // Host pattern
+		conn.Host,        // Hostname
 		fmt.Sprintf("%s@%s", conn.Username, conn.Host), // user@host
 	}
 

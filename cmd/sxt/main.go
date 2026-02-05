@@ -242,7 +242,7 @@ func runDirectConnect(connectionID string) {
 	if !found {
 		fmt.Fprintf(os.Stderr, "Error: Connection with ID '%s' not found.\n", connectionID)
 		fmt.Fprintln(os.Stderr, "\nAvailable connections:")
-		
+
 		connections := sshConfigManager.ListConnections()
 		if len(connections) == 0 {
 			fmt.Fprintln(os.Stderr, "  (none)")
@@ -261,4 +261,3 @@ func runDirectConnect(connectionID string) {
 		os.Exit(1)
 	}
 }
-
