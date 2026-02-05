@@ -104,6 +104,36 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Trigger Homebrew Update
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'homebrew.yml',
+              ref: 'main',
+              inputs: {
+                version: '${{ steps.get_tag.outputs.new_tag }}'
+              }
+            });
+            console.log('✅ Triggered Homebrew workflow');
+
+      - name: Trigger Chocolatey Publish
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'chocolatey.yml',
+              ref: 'main',
+              inputs: {
+                version: '${{ steps.get_tag.outputs.new_tag }}'.replace('v', '')
+              }
+            });
+            console.log('✅ Triggered Chocolatey workflow');
+
   publish-npm:
     needs: release
     runs-on: ubuntu-latest

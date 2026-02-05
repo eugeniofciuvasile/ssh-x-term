@@ -1,8 +1,6 @@
 name: Publish to Chocolatey
 
 on:
-  release:
-    types: [published, created, released]
   workflow_dispatch:
     inputs:
       version:
@@ -20,13 +18,12 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
+          VERSION="${{ github.event.inputs.version }}"
+          # Remove 'v' prefix if present
+          VERSION=${VERSION#v}
+          TAG="v$VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Download Windows binary
         shell: bash

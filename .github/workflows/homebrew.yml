@@ -1,8 +1,11 @@
 name: Update Homebrew Formula
 
 on:
-  release:
-    types: [published, created, released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v2.0.4)'
+        required: true
 
 jobs:
   update-homebrew:
@@ -22,18 +25,21 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
-      - name: Get release info
-        id: release
+      - name: Get version info
+        id: version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION="${{ github.event.inputs.version }}"
+          # Remove 'v' prefix if present
+          VERSION=${VERSION#v}
+          TAG="v$VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Download release assets and compute checksums
         id: checksums
         run: |
-          VERSION="${{ steps.release.outputs.version }}"
-          TAG="${{ steps.release.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
           
           # Download binaries
           curl -L -o darwin-amd64 "https://github.com/${{ github.repository }}/releases/download/$TAG/ssh-x-term-darwin-amd64"
@@ -54,8 +60,8 @@ jobs:
 
       - name: Update formula in main repository
         run: |
-          VERSION="${{ steps.release.outputs.version }}"
-          TAG="${{ steps.release.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
           
           cd main-repo
           sed -i "s/version \".*\"/version \"$VERSION\"/" homebrew/ssh-x-term.rb
@@ -75,7 +81,7 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add homebrew/ssh-x-term.rb
-          git commit -m "chore: update Homebrew formula to ${{ steps.release.outputs.tag }}" || echo "No changes to commit"
+          git commit -m "chore: update Homebrew formula to ${{ steps.version.outputs.tag }} [skip ci]" || echo "No changes to commit"
           git push origin main
 
       - name: Commit and push to tap repository
@@ -84,5 +90,5 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add Formula/ssh-x-term.rb
-          git commit -m "chore: update ssh-x-term formula to ${{ steps.release.outputs.tag }}"
+          git commit -m "chore: update ssh-x-term formula to ${{ steps.version.outputs.tag }}"
           git push origin main
