@@ -122,7 +122,8 @@ ssh-x-term/
 │   │   └── storage.go                              # Storage provider interfaces
 │   ├── ssh/                                        # Pure Go SSH client implementation (v2.0+)
 │   │   ├── client.go                               # Core SSH client with auth and keyring
-│   │   ├── interactive.go                          # Interactive terminal session (v2.0+)
+│   │   ├── interactive_unix.go                     # Interactive terminal session (Unix/Linux/Darwin)
+│   │   ├── interactive_windows.go                  # Interactive terminal session (Windows)
 │   │   ├── session_bubbletea_unix.go               # Bubble Tea SSH session (Unix)
 │   │   ├── session_bubbletea_windows.go            # Bubble Tea SSH session (Windows)
 │   │   ├── sftp.go                                 # SFTP file transfer logic

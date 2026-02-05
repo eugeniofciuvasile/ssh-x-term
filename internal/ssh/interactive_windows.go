@@ -1,3 +1,5 @@
+//go:build windows
+
 package ssh
 
 import (
@@ -5,9 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"golang.org/x/crypto/ssh"
@@ -86,19 +86,7 @@ func ConnectInteractive(connConfig config.SSHConnection) error {
 		return fmt.Errorf("failed to setup stderr pipe: %w", err)
 	}
 
-	// Handle window resize signals
-	sigwinch := make(chan os.Signal, 1)
-	signal.Notify(sigwinch, syscall.SIGWINCH)
-	go func() {
-		for range sigwinch {
-			width, height, err := term.GetSize(fd)
-			if err == nil {
-				session.WindowChange(height, width)
-				log.Printf("[ConnectInteractive] Window resized to %dx%d", width, height)
-			}
-		}
-	}()
-	defer signal.Stop(sigwinch)
+	// Note: Windows doesn't support SIGWINCH, so window resize is not handled
 
 	// Start shell
 	if err := session.Shell(); err != nil {
