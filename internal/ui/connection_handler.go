@@ -3,10 +3,10 @@ package ui
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
@@ -124,56 +124,34 @@ func (m *Model) prepareSSHArgs(conn *config.SSHConnection, keyPath string) []str
 }
 
 func (m *Model) launchTmuxWindow(conn *config.SSHConnection, sshArgs []string) {
-	var sshCommand string
-	usedPassh := false
-	if conn.UsePassword && conn.Password != "" {
-		if _, err := exec.LookPath("passh"); err == nil {
-			usedPassh = true
-			sshCommand = fmt.Sprintf(`passh -p %q ssh %s`, conn.Password, strings.Join(sshArgs, " "))
-		} else {
-			log.Print("passh not found, falling back to manual password entry or key-based login.")
-			sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
-		}
-	} else {
-		sshCommand = fmt.Sprintf("ssh %s", strings.Join(sshArgs, " "))
+	// Get the path to sxt executable
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Printf("Error getting executable path: %v", err)
+		execPath = "sxt" // Fallback to assuming it's in PATH
 	}
 
+	// Use sxt -c with connection ID instead of ssh command
+	sxtCommand := fmt.Sprintf("%s -c %s", execPath, conn.ID)
 	windowName := fmt.Sprintf("%s@%s:%d - %s", conn.Username, conn.Host, conn.Port, conn.Name)
-	cmd := exec.Command("tmux", "new-window", "-n", windowName, sshCommand)
+	
+	cmd := exec.Command("tmux", "new-window", "-n", windowName, sxtCommand)
 	if err := cmd.Start(); err != nil {
 		log.Printf("Error launching tmux window: %v", err)
-	}
-	if conn.UsePassword && conn.Password != "" && !usedPassh {
-		log.Print("Password authentication not supported in this mode. Use manual entry or key-based login, or install passh.")
 	}
 }
 
 func (m *Model) launchWindowsTerminal(conn *config.SSHConnection, sshArgs []string, keyPath, userHost string) {
-	usePlink := false
-	if conn.UsePassword && conn.Password != "" {
-		if _, err := exec.LookPath("plink.exe"); err == nil {
-			usePlink = true
-		}
+	// Get the path to sxt executable
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Printf("Error getting executable path: %v", err)
+		execPath = "sxt.exe" // Fallback to assuming it's in PATH
 	}
-	var cmd *exec.Cmd
-	if usePlink {
-		plinkArgs := []string{"-ssh", userHost, "-pw", conn.Password}
-		if conn.Port != 22 && conn.Port != 0 {
-			plinkArgs = append(plinkArgs, "-P", strconv.Itoa(conn.Port))
-		}
-		if !conn.UsePassword && keyPath != "" {
-			plinkArgs = append(plinkArgs, "-i", keyPath)
-		}
-		cmd = exec.Command("cmd", "/C", "start", "", "plink.exe")
-		cmd.Args = append(cmd.Args, plinkArgs...)
-	} else {
-		cmd = exec.Command("cmd", "/C", "start", "", "ssh")
-		cmd.Args = append(cmd.Args, sshArgs...)
-	}
+
+	// Use sxt -c with connection ID instead of ssh/plink command
+	cmd := exec.Command("cmd", "/C", "start", "", execPath, "-c", conn.ID)
 	if err := cmd.Start(); err != nil {
 		log.Printf("Error launching terminal: %v", err)
-	}
-	if conn.UsePassword && conn.Password != "" && !usePlink {
-		log.Print("Password authentication not supported in this mode. Use manual entry, key-based login, or install plink.exe.")
 	}
 }

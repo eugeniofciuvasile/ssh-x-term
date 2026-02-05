@@ -1,6 +1,96 @@
-# Migration Guide: JSON to SSH Config
+# Migration Guide
 
-## Overview
+This document outlines the migration process between different versions of SSH-X-Term.
+
+---
+
+## Version 2.0 - Pure Go SSH Client (February 2026)
+
+### 🚀 Major Changes
+
+Version 2.0 introduces a **complete rewrite** of the SSH connection layer, replacing external tools with a pure Go SSH client implementation.
+
+### What Changed
+
+#### 🔄 SSH Connection Method
+- **Old (< 2.0):** Used external tools (`ssh`, `passh`, `plink.exe`)
+- **New (>= 2.0):** Pure Go SSH client (`golang.org/x/crypto/ssh`)
+
+#### ✅ Benefits
+- **No external dependencies** - No need for passh, plink, or ssh command
+- **SSH Agent support** - Automatic integration with ssh-agent
+- **Encrypted keys** - Works seamlessly with encrypted SSH keys via ssh-agent
+- **Better compatibility** - Works on all platforms without external tools
+- **Faster connections** - Direct Go implementation
+- **More secure** - No shell command injection risks
+
+#### 🚀 New Features
+- **Direct connect flag:** `sxt -c <connection-id>` for instant connections
+- **Improved SSH agent integration** - Automatically uses loaded keys
+- **Built-in terminal support** - xterm-256color support
+- **Window resize handling** - Proper SIGWINCH support
+
+### Migration Steps (v1.x → v2.0)
+
+1. **Backup your configuration** (optional):
+   ```sh
+   cp ~/.ssh/config ~/.ssh/config.backup
+   ```
+
+2. **Update SSH-X-Term**:
+   ```sh
+   npm update -g ssh-x-term
+   # or
+   go install github.com/eugeniofciuvasile/ssh-x-term/cmd/sxt@latest
+   ```
+
+3. **Your existing connections work automatically!** - No config changes needed
+
+4. **Optional: Remove old dependencies**:
+   ```sh
+   # You can now safely remove these:
+   # - passh (Unix)
+   # - plink.exe (Windows)
+   ```
+
+5. **Setup SSH Agent** (for encrypted keys):
+   ```sh
+   # Start ssh-agent (add to ~/.bashrc or ~/.zshrc)
+   eval $(ssh-agent)
+   
+   # Add your keys
+   ssh-add ~/.ssh/id_rsa
+   ssh-add ~/.ssh/id_ed25519
+   ```
+
+### Compatibility
+
+- ✅ **Config files** - Fully compatible, no changes needed
+- ✅ **Keyring passwords** - Automatically loaded from system keyring
+- ✅ **SSH config** - All existing SSH config options work
+- ✅ **Bitwarden integration** - No changes needed
+- ✅ **TMUX integration** - Works the same way
+
+### Troubleshooting
+
+#### "passphrase required for encrypted key"
+**Solution:** Add your key to ssh-agent:
+```sh
+eval $(ssh-agent)
+ssh-add ~/.ssh/id_rsa
+```
+
+#### Connection works with old version but not new
+**Check:**
+1. Ensure ssh-agent has your keys: `ssh-add -l`
+2. Verify password is in keyring
+3. Check SSH config syntax: `~/.ssh/config`
+
+---
+
+## Version 1.1.0 - SSH Config Migration
+
+### Overview
 
 Starting from version 1.1.0, SSH-X-Term now stores connection information in the standard `~/.ssh/config` file instead of a custom JSON file. This makes your SSH connections compatible with standard SSH tools and provides better integration with your existing SSH workflow.
 
