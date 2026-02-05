@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>ssh-x-term</id>
+    <version>2.0.3</version>
+    <packageSourceUrl>https://github.com/eugeniofciuvasile/ssh-x-term</packageSourceUrl>
+    <owners>Eugen Iofciu Vasile</owners>
+    <title>SSH-X-Term</title>
+    <authors>Eugen Iofciu Vasile</authors>
+    <projectUrl>https://github.com/eugeniofciuvasile/ssh-x-term</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/eugeniofciuvasile/ssh-x-term/main/logo.svg</iconUrl>
+    <licenseUrl>https://github.com/eugeniofciuvasile/ssh-x-term/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/eugeniofciuvasile/ssh-x-term</projectSourceUrl>
+    <docsUrl>https://github.com/eugeniofciuvasile/ssh-x-term#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/eugeniofciuvasile/ssh-x-term/issues</bugTrackerUrl>
+    <tags>ssh terminal tui cli go</tags>
+    <summary>TUI to handle multiple SSH connections simultaneously</summary>
+    <description>
+**SSH-X-Term** is a modern, terminal-based SSH client with a rich TUI (Text User Interface) built on Bubble Tea.
+
+As of version 2.0, SSH-X-Term is a fully self-contained SSH client implemented entirely in Go. There are no external SSH tools or wrappers involved — all SSH, SCP, SFTP, and terminal handling is built in.
+
+It combines SSH connection management, interactive terminals, SCP/SFTP file transfers, and secure credential storage into a single, fast, cross-platform application.
+
+Credentials can be stored securely using your local system keyring or directly in your Bitwarden vault.
+
+## Features
+
+* ✅ Pure Go SSH client — no ssh, no passh, no plink
+* ✅ Cross-platform — identical behavior on Linux, macOS, and Windows
+* ✅ Built-in terminal emulator — full xterm-256color support
+* ✅ SSH Agent integration — encrypted keys supported via ssh-agent
+* ✅ First-class TUI — fast, keyboard-driven, and mouse-aware
+    </description>
+    <releaseNotes>https://github.com/eugeniofciuvasile/ssh-x-term/releases</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

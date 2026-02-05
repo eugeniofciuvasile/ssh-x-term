@@ -82,6 +82,12 @@ jobs:
           GOOS=linux GOARCH=arm64 go build -o dist/ssh-x-term-linux-arm64 ./cmd/sxt
           GOOS=darwin GOARCH=arm64 go build -o dist/ssh-x-term-darwin-arm64 ./cmd/sxt
 
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum ssh-x-term-* > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -93,6 +99,7 @@ jobs:
             dist/ssh-x-term-darwin-amd64
             dist/ssh-x-term-linux-arm64
             dist/ssh-x-term-darwin-arm64
+            dist/SHA256SUMS
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

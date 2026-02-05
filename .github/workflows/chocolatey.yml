@@ -1,0 +1,82 @@
+name: Publish to Chocolatey
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 2.0.3)'
+        required: true
+
+jobs:
+  publish-chocolatey:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download Windows binary
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          curl -L -o ssh-x-term-windows-amd64.exe \
+            "https://github.com/${{ github.repository }}/releases/download/$TAG/ssh-x-term-windows-amd64.exe"
+
+      - name: Compute checksum
+        id: checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 -Path "ssh-x-term-windows-amd64.exe").Hash
+          echo "checksum=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Update nuspec and install script
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CHECKSUM="${{ steps.checksum.outputs.checksum }}"
+          
+          # Update version in nuspec
+          sed -i "s/<version>.*<\/version>/<version>$VERSION<\/version>/" chocolatey/ssh-x-term.nuspec
+          
+          # Update version and checksum in install script
+          sed -i "s/\$version = '.*'/\$version = '$VERSION'/" chocolatey/tools/chocolateyinstall.ps1
+          sed -i "s/checksum64 = '.*'/checksum64 = '$CHECKSUM'/" chocolatey/tools/chocolateyinstall.ps1
+
+      - name: Install Chocolatey
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        shell: pwsh
+
+      - name: Package Chocolatey
+        run: |
+          cd chocolatey
+          choco pack
+        shell: pwsh
+
+      - name: Publish to Chocolatey
+        if: github.event_name == 'release'
+        run: |
+          cd chocolatey
+          choco push ssh-x-term.${{ steps.version.outputs.version }}.nupkg --source https://push.chocolatey.org/ --api-key ${{ secrets.CHOCOLATEY_API_KEY }}
+        shell: pwsh
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chocolatey-package
+          path: chocolatey/*.nupkg

@@ -1,0 +1,88 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-homebrew:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+        with:
+          path: main-repo
+
+      - name: Checkout homebrew-tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: eugeniofciuvasile/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Get release info
+        id: release
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download release assets and compute checksums
+        id: checksums
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          TAG="${{ steps.release.outputs.tag }}"
+          
+          # Download binaries
+          curl -L -o darwin-amd64 "https://github.com/${{ github.repository }}/releases/download/$TAG/ssh-x-term-darwin-amd64"
+          curl -L -o darwin-arm64 "https://github.com/${{ github.repository }}/releases/download/$TAG/ssh-x-term-darwin-arm64"
+          curl -L -o linux-amd64 "https://github.com/${{ github.repository }}/releases/download/$TAG/ssh-x-term-linux-amd64"
+          curl -L -o linux-arm64 "https://github.com/${{ github.repository }}/releases/download/$TAG/ssh-x-term-linux-arm64"
+          
+          # Compute SHA256
+          SHA_DARWIN_AMD64=$(sha256sum darwin-amd64 | awk '{print $1}')
+          SHA_DARWIN_ARM64=$(sha256sum darwin-arm64 | awk '{print $1}')
+          SHA_LINUX_AMD64=$(sha256sum linux-amd64 | awk '{print $1}')
+          SHA_LINUX_ARM64=$(sha256sum linux-arm64 | awk '{print $1}')
+          
+          echo "darwin_amd64=$SHA_DARWIN_AMD64" >> $GITHUB_OUTPUT
+          echo "darwin_arm64=$SHA_DARWIN_ARM64" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$SHA_LINUX_AMD64" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$SHA_LINUX_ARM64" >> $GITHUB_OUTPUT
+
+      - name: Update formula in main repository
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          TAG="${{ steps.release.outputs.tag }}"
+          
+          cd main-repo
+          sed -i "s/version \".*\"/version \"$VERSION\"/" homebrew/ssh-x-term.rb
+          sed -i "s|/v[0-9.]\+/|/$TAG/|g" homebrew/ssh-x-term.rb
+          sed -i "s/PLACEHOLDER_AMD64_SHA256/${{ steps.checksums.outputs.darwin_amd64 }}/" homebrew/ssh-x-term.rb
+          sed -i "s/PLACEHOLDER_ARM64_SHA256/${{ steps.checksums.outputs.darwin_arm64 }}/" homebrew/ssh-x-term.rb
+          sed -i "s/PLACEHOLDER_LINUX_AMD64_SHA256/${{ steps.checksums.outputs.linux_amd64 }}/" homebrew/ssh-x-term.rb
+          sed -i "s/PLACEHOLDER_LINUX_ARM64_SHA256/${{ steps.checksums.outputs.linux_arm64 }}/" homebrew/ssh-x-term.rb
+
+      - name: Update formula in tap repository
+        run: |
+          cp main-repo/homebrew/ssh-x-term.rb homebrew-tap/Formula/ssh-x-term.rb
+
+      - name: Commit and push to main repository
+        run: |
+          cd main-repo
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add homebrew/ssh-x-term.rb
+          git commit -m "chore: update Homebrew formula to ${{ steps.release.outputs.tag }}" || echo "No changes to commit"
+          git push origin main
+
+      - name: Commit and push to tap repository
+        run: |
+          cd homebrew-tap
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add Formula/ssh-x-term.rb
+          git commit -m "chore: update ssh-x-term formula to ${{ steps.release.outputs.tag }}"
+          git push origin main

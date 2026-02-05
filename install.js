@@ -70,7 +70,6 @@ function downloadFile(url, dest, cb, redirectCount = 0) {
 function checkDeps() {
     const deps = [
         { name: 'tmux', check: 'tmux' },
-        { name: 'passh', check: 'passh' },
         { name: 'bw (bitwarden-cli)', check: 'bw' }
     ];
 
