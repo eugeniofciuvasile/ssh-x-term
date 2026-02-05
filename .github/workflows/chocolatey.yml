@@ -48,9 +48,14 @@ jobs:
           # Update version in nuspec
           sed -i "s/<version>.*<\/version>/<version>$VERSION<\/version>/" chocolatey/ssh-x-term.nuspec
           
-          # Update version and checksum in install script
+          # Update version and checksum in install script (note the spacing matches the file)
           sed -i "s/\$version = '.*'/\$version = '$VERSION'/" chocolatey/tools/chocolateyinstall.ps1
-          sed -i "s/checksum64 = '.*'/checksum64 = '$CHECKSUM'/" chocolatey/tools/chocolateyinstall.ps1
+          sed -i "s/checksum64     = '.*'/checksum64     = '$CHECKSUM'/" chocolatey/tools/chocolateyinstall.ps1
+          
+          # Verify the changes
+          echo "=== Updated chocolateyinstall.ps1 ==="
+          grep -A 2 '\$version' chocolatey/tools/chocolateyinstall.ps1
+          grep 'checksum64' chocolatey/tools/chocolateyinstall.ps1
 
       - name: Install Chocolatey
         run: |
