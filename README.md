@@ -7,11 +7,20 @@
     <img alt="SSH-X-Term Logo" src="./logo.svg" width="240">
   </picture>
   <br>
+  <!-- Releases -->
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/releases"><img src="https://img.shields.io/github/v/release/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="Latest Release"></a>
+  <!-- Homebrew -->
+  <a href="https://github.com/eugeniofciuvasile/homebrew-tap"><img src="https://img.shields.io/badge/homebrew-available-brightgreen?style=flat-square&logo=homebrew" alt="Homebrew Tap"></a>
+  <!-- Chocolatey -->
+  <a href="https://community.chocolatey.org/packages/ssh-x-term"><img src="https://img.shields.io/chocolatey/v/ssh-x-term?style=flat-square&logo=chocolatey" alt="Chocolatey Version"></a>
+  <!-- NPM -->
   <a href="https://www.npmjs.com/package/ssh-x-term"><img src="https://img.shields.io/npm/v/ssh-x-term?style=flat-square&logo=npm" alt="NPM Version"></a>
+  <!-- Downloads -->
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/releases"><img src="https://img.shields.io/github/downloads/eugeniofciuvasile/ssh-x-term/total?style=flat-square&color=blue" alt="GitHub Downloads"></a>
   <a href="https://www.npmjs.com/package/ssh-x-term"><img src="https://img.shields.io/npm/dt/ssh-x-term?style=flat-square&logo=npm" alt="NPM Downloads"></a>
+  <!-- CI -->
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/actions"><img src="https://github.com/eugeniofciuvasile/ssh-x-term/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
+  <!-- Meta -->
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/stargazers"><img src="https://img.shields.io/github/stars/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="GitHub Stars"></a>
   <a href="https://github.com/eugeniofciuvasile/ssh-x-term/blob/main/LICENSE"><img src="https://img.shields.io/github/license/eugeniofciuvasile/ssh-x-term?style=flat-square" alt="License"></a>
 </p>
