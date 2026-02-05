@@ -18,6 +18,7 @@ func main() {
 	// Parse command-line flags
 	listFlag := flag.Bool("l", false, "List and select from saved SSH connections")
 	initFlag := flag.Bool("i", false, "Initialize SSH config and perform first-time migration")
+	connectFlag := flag.String("c", "", "Connect directly to a saved connection by ID using golang SSH client")
 	flag.Parse()
 
 	logfilePath := os.Getenv("SSH_X_TERM_LOG")
@@ -46,6 +47,18 @@ func main() {
 	// Handle -i flag for initialization
 	if *initFlag {
 		runInitialization()
+		return
+	}
+
+	// Handle -c flag for direct connection by ID
+	if *connectFlag != "" {
+		// Check if initialization has been done
+		if !isInitialized() {
+			fmt.Fprintln(os.Stderr, "Error: SSH-X-Term not initialized.")
+			fmt.Fprintln(os.Stderr, "Please run 'sxt -i' first to initialize and migrate your configuration.")
+			os.Exit(1)
+		}
+		cli.RunDirectConnect(*connectFlag)
 		return
 	}
 
@@ -146,7 +159,7 @@ func runQuickConnect() {
 	// Get the selected connection
 	selectorModel := finalModel.(*cli.SelectorModel)
 	choice := selectorModel.Choice()
-	
+
 	if choice == nil {
 		// User canceled
 		fmt.Println("Connection canceled.")
@@ -196,16 +209,17 @@ func runInitialization() {
 	fmt.Println()
 	fmt.Println("✓ Initialization complete!")
 	fmt.Println()
-	
+
 	connections := sshConfigManager.ListConnections()
 	if len(connections) > 0 {
 		fmt.Printf("✓ Found %d connection(s)\n", len(connections))
 	} else {
 		fmt.Println("No connections found. Use 'sxt' to add connections via the full TUI.")
 	}
-	
+
 	fmt.Println()
 	fmt.Println("You can now use:")
-	fmt.Println("  • sxt      - Launch full TUI")
-	fmt.Println("  • sxt -l   - Quick connect mode")
+	fmt.Println("  • sxt         - Launch full TUI")
+	fmt.Println("  • sxt -l      - Quick connect mode")
+	fmt.Println("  • sxt -c <id> - Direct connect by ID")
 }

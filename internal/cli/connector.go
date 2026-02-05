@@ -104,6 +104,20 @@ func ConnectDirect(conn config.SSHConnection) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	
+	// Set TERM to a widely compatible value to avoid terminal type issues
+	cmd.Env = os.Environ()
+	termSet := false
+	for i, env := range cmd.Env {
+		if len(env) >= 5 && env[:5] == "TERM=" {
+			cmd.Env[i] = "TERM=xterm-256color"
+			termSet = true
+			break
+		}
+	}
+	if !termSet {
+		cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+	}
 
 	log.Printf("Executing: %s %v", cmd.Path, cmd.Args)
 
@@ -113,4 +127,42 @@ func ConnectDirect(conn config.SSHConnection) error {
 	}
 
 	return nil
+}
+
+func RunDirectConnect(connectionID string) {
+	// Load SSH config
+	sshConfigManager, err := config.NewSSHConfigManager()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading SSH config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := sshConfigManager.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading connections: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Get the connection by ID
+	conn, found := sshConfigManager.GetConnection(connectionID)
+	if !found {
+		fmt.Fprintf(os.Stderr, "Error: Connection with ID '%s' not found.\n", connectionID)
+		fmt.Fprintln(os.Stderr, "\nAvailable connections:")
+
+		connections := sshConfigManager.ListConnections()
+		if len(connections) == 0 {
+			fmt.Fprintln(os.Stderr, "  (none)")
+		} else {
+			for _, c := range connections {
+				fmt.Fprintf(os.Stderr, "  • %s (%s) - %s@%s:%d\n", c.Name, c.ID, c.Username, c.Host, c.Port)
+			}
+		}
+		os.Exit(1)
+	}
+
+	// Connect directly using the same method as sxt -l
+	fmt.Printf("Connecting to %s...\n", conn.Name)
+	if err := ConnectDirect(conn); err != nil {
+		fmt.Fprintf(os.Stderr, "Connection failed: %v\n", err)
+		os.Exit(1)
+	}
 }
