@@ -57,50 +57,18 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
           
-          cat > Formula/ssh-x-term.rb << 'FORMULA_EOF'
-class SshXTerm < Formula
-  desc "TUI to handle multiple SSH connections simultaneously"
-  homepage "https://github.com/eugeniofciuvasile/ssh-x-term"
-  version "VERSION_PLACEHOLDER"
-  license "MIT"
-
-  on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/eugeniofciuvasile/ssh-x-term/releases/download/TAG_PLACEHOLDER/ssh-x-term-darwin-arm64"
-      sha256 "DARWIN_ARM64_SHA"
-    else
-      url "https://github.com/eugeniofciuvasile/ssh-x-term/releases/download/TAG_PLACEHOLDER/ssh-x-term-darwin-amd64"
-      sha256 "DARWIN_AMD64_SHA"
-    end
-  end
-
-  on_linux do
-    if Hardware::CPU.arm?
-      url "https://github.com/eugeniofciuvasile/ssh-x-term/releases/download/TAG_PLACEHOLDER/ssh-x-term-linux-arm64"
-      sha256 "LINUX_ARM64_SHA"
-    else
-      url "https://github.com/eugeniofciuvasile/ssh-x-term/releases/download/TAG_PLACEHOLDER/ssh-x-term-linux-amd64"
-      sha256 "LINUX_AMD64_SHA"
-    end
-  end
-
-  def install
-    bin.install Dir["ssh-x-term-*"].first => "sxt"
-  end
-
-  test do
-    system "#{bin}/sxt", "--version"
-  end
-end
-FORMULA_EOF
-
-          # Replace placeholders
-          sed -i "s/VERSION_PLACEHOLDER/$VERSION/" Formula/ssh-x-term.rb
-          sed -i "s/TAG_PLACEHOLDER/$TAG/g" Formula/ssh-x-term.rb
-          sed -i "s/DARWIN_AMD64_SHA/${{ steps.checksums.outputs.darwin_amd64 }}/" Formula/ssh-x-term.rb
-          sed -i "s/DARWIN_ARM64_SHA/${{ steps.checksums.outputs.darwin_arm64 }}/" Formula/ssh-x-term.rb
-          sed -i "s/LINUX_AMD64_SHA/${{ steps.checksums.outputs.linux_amd64 }}/" Formula/ssh-x-term.rb
-          sed -i "s/LINUX_ARM64_SHA/${{ steps.checksums.outputs.linux_arm64 }}/" Formula/ssh-x-term.rb
+          # Download template from main repo
+          curl -L -o formula.template "https://raw.githubusercontent.com/${{ github.repository }}/main/.github/homebrew-formula.rb.template"
+          
+          # Generate formula from template
+          cat formula.template | \
+            sed "s/VERSION_PLACEHOLDER/$VERSION/" | \
+            sed "s/TAG_PLACEHOLDER/$TAG/g" | \
+            sed "s/DARWIN_AMD64_SHA/${{ steps.checksums.outputs.darwin_amd64 }}/" | \
+            sed "s/DARWIN_ARM64_SHA/${{ steps.checksums.outputs.darwin_arm64 }}/" | \
+            sed "s/LINUX_AMD64_SHA/${{ steps.checksums.outputs.linux_amd64 }}/" | \
+            sed "s/LINUX_ARM64_SHA/${{ steps.checksums.outputs.linux_arm64 }}/" \
+            > Formula/ssh-x-term.rb
 
       - name: Commit and push to tap repository
         run: |
