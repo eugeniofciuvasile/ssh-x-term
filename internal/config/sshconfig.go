@@ -347,12 +347,21 @@ func (scm *SSHConfigManager) DeleteConnection(id string) error {
 func (scm *SSHConfigManager) GetConnection(id string) (SSHConnection, bool) {
 	for _, conn := range scm.Config.Connections {
 		if conn.ID == id {
-			// Retrieve password from keyring
-			password, err := keyring.Get(sshKeyringService, id)
+			// Retrieve password or passphrase from keyring
+			// For key-based auth, use "passphrase:" prefix; for password auth, use ID directly
+			var keyringKey string
+			if conn.UsePassword {
+				keyringKey = id
+			} else {
+				keyringKey = "passphrase:" + id
+			}
+			
+			password, err := keyring.Get(sshKeyringService, keyringKey)
 			if err != nil {
-				log.Printf("Failed to retrieve password from keyring: %v", err)
+				log.Printf("Failed to retrieve password from keyring (key: %s): %v", keyringKey, err)
 			} else {
 				conn.Password = password
+				log.Printf("Retrieved password from keyring for connection ID: %s (key: %s)", id, keyringKey)
 			}
 			return conn, true
 		}
