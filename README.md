@@ -148,7 +148,15 @@ sxt
 > The npm installer downloads the correct prebuilt binary for your platform.
 > Only optional tools (`bw`, `tmux`) may be suggested.
 
-### Option 2: Build from source
+### Option 2: Install via Homebrew (macOS/Linux)
+
+```sh
+brew tap eugeniofciuvasile/tap
+brew install ssh-x-term
+sxt
+```
+
+### Option 3: Build from source
 
 ```sh
 git clone https://github.com/eugeniofciuvasile/ssh-x-term.git
@@ -162,7 +170,7 @@ Or:
 go install github.com/eugeniofciuvasile/ssh-x-term/cmd/sxt@latest
 ```
 
-### Option 3: Prebuilt Binary
+### Option 4: Prebuilt Binary
 
 Download from the GitHub Releases page.
 
