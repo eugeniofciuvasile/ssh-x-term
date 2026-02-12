@@ -1,0 +1,18 @@
+VERIFICATION
+Verification is intended to assist the Chocolatey moderators and community
+in verifying that this package's contents are trustworthy.
+
+The binary included in this package is downloaded directly from the official GitHub releases:
+https://github.com/eugeniofciuvasile/ssh-x-term/releases
+
+The checksum of the binary is verified during installation using SHA256.
+
+You can verify the binary yourself by:
+1. Downloading it from: https://github.com/eugeniofciuvasile/ssh-x-term/releases/latest
+2. Computing the SHA256 hash
+3. Comparing with the checksum in chocolateyinstall.ps1
+
+This is an open-source project and the source code is available at:
+https://github.com/eugeniofciuvasile/ssh-x-term
+
+The binary is built using GitHub Actions with a transparent build process.

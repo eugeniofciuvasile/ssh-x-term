@@ -20,13 +20,17 @@ Defines package identity, dependencies, and metadata:
 - Authors, description, tags, project URLs
 - File inclusions (only tools directory)
 
+**Note**: The package uses remote download (not embedded binary) to keep package size small and ensure single source of truth from GitHub releases.
+
 ### Installation Script
 
 The `chocolateyinstall.ps1` script:
-1. Downloads Windows binary from GitHub release
+1. Downloads Windows binary from GitHub release using `Get-ChocolateyWebFile`
 2. Verifies SHA256 checksum
-3. Renames binary to `sxt.exe`
-4. Creates shim for command-line access
+3. Saves directly as `sxt.exe` (no rename needed)
+4. Chocolatey automatically creates shim for command-line access
+
+**Key Change**: Uses `Get-ChocolateyWebFile` instead of `Install-ChocolateyZipPackage` since the download is an .exe file, not a .zip archive. This prevents extraction errors.
 
 ### Uninstallation Script
 
@@ -103,6 +107,44 @@ Subsequent updates:
 
 ## Common Issues
 
+### Antivirus False Positive (Trojan.Malware.300983.susgen)
+
+**Cause**: Go binaries without code signing can trigger false positives in Windows Defender and other antivirus software.
+
+**Solution**:
+1. The binary is safe and built from open-source code via GitHub Actions
+2. Add an exclusion for `sxt.exe` in your antivirus software temporarily
+3. Submit the binary to your antivirus vendor as a false positive
+4. The package includes VERIFICATION.txt and LICENSE.txt to help moderators verify authenticity
+5. Long-term: Consider code signing the Windows binary (requires certificate)
+
+**Windows Defender Exclusion** (run as Administrator):
+```powershell
+Add-MpPreference -ExclusionPath "C:\ProgramData\chocolatey\lib\ssh-x-term\tools\sxt.exe"
+```
+
+### Binary Not Found After Install ("Cannot find file at sxt.exe")
+
+**Cause**: Antivirus quarantined the file after installation, or `Install-ChocolateyZipPackage` was used incorrectly for an .exe file.
+
+**Solution** (Fixed in latest version):
+- Now uses `Get-ChocolateyWebFile` which correctly downloads the .exe
+- Downloads directly to `sxt.exe` (no rename needed)
+- Reduces time window for antivirus to interfere
+- Add antivirus exclusion before installing (see above)
+
+**If already installed and broken**:
+```powershell
+# Uninstall broken package
+choco uninstall ssh-x-term -y
+
+# Add exclusion
+Add-MpPreference -ExclusionPath "C:\ProgramData\chocolatey\lib\ssh-x-term\tools\sxt.exe"
+
+# Reinstall
+choco install ssh-x-term -y
+```
+
 ### Checksum Mismatch
 
 **Cause**: Incorrect or outdated checksum in install script
@@ -121,15 +163,6 @@ Update checksum in `tools/chocolateyinstall.ps1`
 1. Review validation errors at package moderation page
 2. Test locally: `choco install ssh-x-term -s . -y`
 3. Fix errors and resubmit
-
-### Binary Not Found After Install
-
-**Cause**: Shim creation failed or PATH issues
-
-**Solution**:
-1. Verify shim exists: `where sxt`
-2. Check Chocolatey bin: `dir $env:ChocolateyInstall\bin`
-3. Restart shell to reload PATH
 
 ## Helper Scripts
 
@@ -173,6 +206,8 @@ Installation does not require administrator privileges for the binary itself. Ch
 | `ssh-x-term.nuspec` | Package metadata and configuration |
 | `tools/chocolateyinstall.ps1` | Installation logic and binary setup |
 | `tools/chocolateyuninstall.ps1` | Cleanup and shim removal |
+| `tools/VERIFICATION.txt` | Verification instructions for moderators |
+| `tools/LICENSE.txt` | Project license (helps with antivirus) |
 | `test-package.sh` | Helper script for version/checksum updates |
 | `README.md` | This file |
 
