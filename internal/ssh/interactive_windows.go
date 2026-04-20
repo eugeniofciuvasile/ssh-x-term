@@ -87,7 +87,6 @@ func ConnectInteractive(connConfig config.SSHConnection) error {
 		ssh.ECHO:          1,
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
-		ssh.ICANON:        0,
 		ssh.ISIG:          1,
 	}
 

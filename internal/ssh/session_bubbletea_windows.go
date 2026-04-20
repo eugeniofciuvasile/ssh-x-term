@@ -46,7 +46,6 @@ func NewBubbleTeaSession(connConfig config.SSHConnection, width, height int) (*B
 		ssh.ECHO:          1, // Echo input characters
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
-		ssh.ICANON:        0, // Disable canonical mode for proper arrow key handling
 		ssh.ISIG:          1, // Enable signal generation (Ctrl+C, etc.)
 	}
 
