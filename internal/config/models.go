@@ -9,12 +9,15 @@ type SSHConnection struct {
 	Port           int      `json:"port"`
 	Username       string   `json:"username"`
 	Password       string   `json:"password,omitempty"`
+	SudoPassword   string   `json:"sudo_password,omitempty"`
 	PublicKey      string   `json:"public_key,omitempty"`
 	UsePassword    bool     `json:"use_password"`
 	KeyFile        string   `json:"key_file,omitempty"`
 	Notes          string   `json:"notes,omitempty"`
 	OrganizationID string   `json:"organizationId"`
 	CollectionIds  []string `json:"collectionIds,omitempty"`
+	Pinned         bool     `json:"pinned"`
+	Order          int      `json:"order"`
 }
 
 // Organization represents the user's organization

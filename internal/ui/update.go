@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
 )
 
@@ -160,6 +161,170 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case components.RenameConnectionMsg:
+		if m.storageBackend != nil {
+			msg.Connection.Name = msg.NewName
+			if err := m.storageBackend.EditConnection(msg.Connection); err != nil {
+				m.errorMessage = fmt.Sprintf("Failed to rename: %s", err)
+				return m, nil
+			}
+			conns := m.storageBackend.ListConnections()
+			m.connectionList.SetConnections(conns)
+			return m, nil
+		}
+		return m, nil
+
+	case components.TogglePinnedMsg:
+		if m.storageBackend != nil {
+			msg.Connection.Pinned = !msg.Connection.Pinned
+			if err := m.storageBackend.EditConnection(msg.Connection); err != nil {
+				m.errorMessage = fmt.Sprintf("Failed to pin connection: %s", err)
+				return m, nil
+			}
+			
+			// Refresh list from backend to get latest state
+			conns := m.storageBackend.ListConnections()
+			m.connectionList.SetConnections(conns)
+			
+			// Try to find the new index of the toggled connection to keep it highlighted
+			newIdx := 0
+			for i, c := range m.connectionList.Connections {
+				if c.ID == msg.Connection.ID {
+					newIdx = i
+					break
+				}
+			}
+			m.connectionList.List().Select(newIdx)
+			
+			return m, nil
+		}
+		return m, nil
+
+	case components.MoveConnectionUpMsg:
+		if m.storageBackend != nil {
+			conns := m.storageBackend.ListConnections()
+			currentSorted := m.connectionList.Connections
+			idx := -1
+			for i, c := range currentSorted {
+				if c.ID == msg.Connection.ID {
+					idx = i
+					break
+				}
+			}
+
+			if idx > 0 {
+				above := currentSorted[idx-1]
+				// Only allow swapping within the same Pinned status
+				if msg.Connection.Pinned != above.Pinned {
+					return m, nil
+				}
+
+				// Find both in the backend list to swap their Order
+				var connInBackend, aboveInBackend *config.SSHConnection
+				for i := range conns {
+					if conns[i].ID == msg.Connection.ID {
+						connInBackend = &conns[i]
+					} else if conns[i].ID == above.ID {
+						aboveInBackend = &conns[i]
+					}
+				}
+
+				if connInBackend != nil && aboveInBackend != nil {
+					// Swap orders
+					connInBackend.Order, aboveInBackend.Order = aboveInBackend.Order, connInBackend.Order
+					
+					// If orders were equal (default 0), we need to initialize them properly
+					if connInBackend.Order == aboveInBackend.Order {
+						// Assign orders based on current list position to everything
+						for i := range conns {
+							for j, sc := range currentSorted {
+								if conns[i].ID == sc.ID {
+									conns[i].Order = j
+								}
+							}
+						}
+						// Now swap the two we want
+						for i := range conns {
+							if conns[i].ID == msg.Connection.ID {
+								conns[i].Order = idx - 1
+							} else if conns[i].ID == above.ID {
+								conns[i].Order = idx
+							}
+						}
+					}
+
+					// Save both
+					_ = m.storageBackend.EditConnection(*connInBackend)
+					_ = m.storageBackend.EditConnection(*aboveInBackend)
+
+					// Update UI model directly to avoid reload flicker and maintain selection
+					m.connectionList.SetConnections(conns)
+					m.connectionList.List().Select(idx - 1)
+					return m, nil
+				}
+			}
+		}
+		return m, nil
+
+	case components.MoveConnectionDownMsg:
+		if m.storageBackend != nil {
+			conns := m.storageBackend.ListConnections()
+			currentSorted := m.connectionList.Connections
+			idx := -1
+			for i, c := range currentSorted {
+				if c.ID == msg.Connection.ID {
+					idx = i
+					break
+				}
+			}
+
+			if idx >= 0 && idx < len(currentSorted)-1 {
+				below := currentSorted[idx+1]
+				// Only allow swapping within the same Pinned status
+				if msg.Connection.Pinned != below.Pinned {
+					return m, nil
+				}
+
+				var connInBackend, belowInBackend *config.SSHConnection
+				for i := range conns {
+					if conns[i].ID == msg.Connection.ID {
+						connInBackend = &conns[i]
+					} else if conns[i].ID == below.ID {
+						belowInBackend = &conns[i]
+					}
+				}
+
+				if connInBackend != nil && belowInBackend != nil {
+					connInBackend.Order, belowInBackend.Order = belowInBackend.Order, connInBackend.Order
+					
+					if connInBackend.Order == belowInBackend.Order {
+						for i := range conns {
+							for j, sc := range currentSorted {
+								if conns[i].ID == sc.ID {
+									conns[i].Order = j
+								}
+							}
+						}
+						for i := range conns {
+							if conns[i].ID == msg.Connection.ID {
+								conns[i].Order = idx + 1
+							} else if conns[i].ID == below.ID {
+								conns[i].Order = idx
+							}
+						}
+					}
+
+					_ = m.storageBackend.EditConnection(*connInBackend)
+					_ = m.storageBackend.EditConnection(*belowInBackend)
+
+					m.connectionList.SetConnections(conns)
+					m.connectionList.List().Select(idx + 1)
+					return m, nil
+				}
+			}
+		}
+		return m, nil
+
 	case LoadConnectionsFinishedMsg:
 		m.loading = false // finally stop the spinner here
 		if msg.Err != nil {
@@ -267,8 +432,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case StateConnectionList:
 			if m.connectionList != nil {
-				// If delete confirmation is showing, pass ALL keys to connectionList
-				if m.connectionList.IsShowingDeleteConfirm() {
+				// If delete confirmation, password modal or rename modal is showing, pass ALL keys to connectionList
+				if m.connectionList.IsShowingDeleteConfirm() || m.connectionList.IsShowingPasswordModal() || m.connectionList.IsShowingRenameModal() {
 					model, cmd := m.connectionList.Update(msg)
 					m.connectionList = model.(*components.ConnectionList)
 					return m, cmd
@@ -303,11 +468,72 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.state = StateEditConnection
 						return m, m.connectionForm.Init()
 					}
+				case msg.String() == "r":
+					// Rename connection
+					m.connectionList.ShowRename()
+					return m, nil
 				case msg.String() == "d" || msg.String() == "D":
 					// Pass to connectionList for delete confirmation handling
 					model, cmd := m.connectionList.Update(msg)
 					m.connectionList = model.(*components.ConnectionList)
 					return m, cmd
+				case msg.String() == "p" || msg.String() == "P":
+					// Show password modal for highlighted connection
+					if conn := m.connectionList.HighlightedConnection(); conn != nil {
+						// Fetch full connection with password
+						fullConn, ok := m.storageBackend.GetConnection(conn.ID)
+						if ok {
+							m.connectionList.ShowPassword(fullConn)
+							return m, nil
+						}
+					}
+				case msg.String() == "f":
+					// Pin/Unpin connection
+					return m, m.connectionList.TogglePinned()
+				case msg.String() == "K":
+					// Move connection up
+					return m, m.connectionList.MoveUp()
+				case msg.String() == "J":
+					// Move connection down
+					return m, m.connectionList.MoveDown()
+				case msg.String() == "c" || msg.String() == "C":
+					// Copy password directly or show modal if multiple
+					if conn := m.connectionList.HighlightedConnection(); conn != nil {
+						fullConn, ok := m.storageBackend.GetConnection(conn.ID)
+						if ok {
+							count := 0
+							var lastPass, lastLabel string
+							
+							if fullConn.Password != "" {
+								count++
+								lastPass = fullConn.Password
+								lastLabel = "Password"
+								if !fullConn.UsePassword {
+									lastLabel = "Key Passphrase"
+								}
+							}
+							if fullConn.SudoPassword != "" {
+								count++
+								lastPass = fullConn.SudoPassword
+								lastLabel = "Sudo Password"
+							}
+
+							if count > 1 {
+								// Multiple passwords, show modal for selection
+								m.connectionList.ShowPassword(fullConn)
+								return m, nil
+							} else if count == 1 {
+								// Only one password, copy it directly
+								if err := components.CopyToClipboard(lastPass); err == nil {
+									m.errorMessage = lastLabel + " copied to clipboard!"
+									return m, nil
+								}
+							} else {
+								m.errorMessage = "No password stored for this connection"
+								return m, nil
+							}
+						}
+					}
 				case msg.String() == "s":
 					// Open SCP file manager
 					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil {

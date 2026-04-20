@@ -67,6 +67,12 @@ func MigrateFromJSON() error {
 			conn.Password = password
 		}
 
+		// Try to retrieve sudo password from old keyring
+		sudoPassword, err := keyring.Get(legacyKeyringService, "sudo:"+conn.ID)
+		if err == nil && sudoPassword != "" {
+			conn.SudoPassword = sudoPassword
+		}
+
 		// Add connection to SSH config
 		if err := scm.AddConnection(conn); err != nil {
 			log.Printf("Warning: failed to migrate connection %s (%s): %v", conn.Name, conn.ID, err)

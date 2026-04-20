@@ -199,6 +199,17 @@ func (bwm *BitwardenManager) Load() error {
 					if strings.ToLower(name) == "use_password" {
 						conn.UsePassword = value == "true"
 					}
+					if strings.ToLower(name) == "sudo_password" {
+						conn.SudoPassword = value
+					}
+					if strings.ToLower(name) == "pinned" {
+						conn.Pinned = value == "true"
+					}
+					if strings.ToLower(name) == "order" {
+						if o, err := strconv.Atoi(value); err == nil {
+							conn.Order = o
+						}
+					}
 				}
 			}
 		}
@@ -288,6 +299,21 @@ func (bwm *BitwardenManager) AddConnectionInCollectionAndOrganization(conn SSHCo
 		{
 			"name":  "use_password",
 			"value": strconv.FormatBool(conn.UsePassword),
+			"type":  0,
+		},
+		{
+			"name":  "sudo_password",
+			"value": conn.SudoPassword,
+			"type":  1, // Hidden
+		},
+		{
+			"name":  "pinned",
+			"value": strconv.FormatBool(conn.Pinned),
+			"type":  0,
+		},
+		{
+			"name":  "order",
+			"value": strconv.Itoa(conn.Order),
 			"type":  0,
 		},
 	}
@@ -405,6 +431,21 @@ func (bwm *BitwardenManager) EditConnection(conn SSHConnection) error {
 		{
 			"name":  "use_password",
 			"value": strconv.FormatBool(conn.UsePassword),
+			"type":  0,
+		},
+		{
+			"name":  "sudo_password",
+			"value": conn.SudoPassword,
+			"type":  1, // Hidden
+		},
+		{
+			"name":  "pinned",
+			"value": strconv.FormatBool(conn.Pinned),
+			"type":  0,
+		},
+		{
+			"name":  "order",
+			"value": strconv.Itoa(conn.Order),
 			"type":  0,
 		},
 	}
@@ -660,6 +701,17 @@ func (bwm *BitwardenManager) LoadConnectionsByCollectionId(collectionId string) 
 					value, _ := field["value"].(string)
 					if strings.ToLower(name) == "use_password" {
 						conn.UsePassword = value == "true"
+					}
+					if strings.ToLower(name) == "sudo_password" {
+						conn.SudoPassword = value
+					}
+					if strings.ToLower(name) == "pinned" {
+						conn.Pinned = value == "true"
+					}
+					if strings.ToLower(name) == "order" {
+						if o, err := strconv.Atoi(value); err == nil {
+							conn.Order = o
+						}
 					}
 				}
 			}

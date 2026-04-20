@@ -57,8 +57,8 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	}
 
 	// Create text inputs
-	// 0: Name, 1: Host, 2: Port, 3: User, 4: Pass, 5: Key, 6: ID
-	inputs = make([]textinput.Model, 7)
+	// 0: Name, 1: Host, 2: Port, 3: Username, 4: Key, 5: Password, 6: SudoPassword, 7: ID
+	inputs = make([]textinput.Model, 8)
 
 	// Helper to init standard inputs
 	initInput := func(i int, placeholder string, width int) {
@@ -79,16 +79,21 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 	initInput(2, "Port (default: 22)", 40)
 	initInput(3, "Username", 30)
 
-	// Password input
-	initInput(4, "Password", 40)
-	inputs[4].EchoMode = textinput.EchoPassword
-	inputs[4].EchoCharacter = '•'
-
 	// Key file input
-	initInput(5, "Path to SSH key (example: ~/.ssh/id_rsa)", 50)
+	initInput(4, "Path to SSH key (example: ~/.ssh/id_rsa)", 50)
+
+	// Password input
+	initInput(5, "Password / Key Passphrase", 40)
+	inputs[5].EchoMode = textinput.EchoPassword
+	inputs[5].EchoCharacter = '•'
+
+	// Sudo password input
+	initInput(6, "Sudo / User Password (optional)", 40)
+	inputs[6].EchoMode = textinput.EchoPassword
+	inputs[6].EchoCharacter = '•'
 
 	// ID input (hidden from view, used as identifier)
-	initInput(6, "ID (auto-generated)", 40)
+	initInput(7, "ID (auto-generated)", 40)
 
 	// If editing, fill the fields
 	if editing {
@@ -96,9 +101,10 @@ func NewConnectionForm(conn *config.SSHConnection) *ConnectionForm {
 		inputs[1].SetValue(initialConn.Host)
 		inputs[2].SetValue(strconv.Itoa(initialConn.Port))
 		inputs[3].SetValue(initialConn.Username)
-		inputs[4].SetValue(initialConn.Password)
-		inputs[5].SetValue(initialConn.KeyFile)
-		inputs[6].SetValue(initialConn.ID)
+		inputs[4].SetValue(initialConn.KeyFile)
+		inputs[5].SetValue(initialConn.Password)
+		inputs[6].SetValue(initialConn.SudoPassword)
+		inputs[7].SetValue(initialConn.ID)
 	}
 
 	// Scan ~/.ssh for private keys (simple scan)
@@ -149,7 +155,7 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Dropdown navigation logic
-		if m.focusIndex == 5 && !m.usePassword && m.dropdownOpen {
+		if m.focusIndex == 4 && !m.usePassword && m.dropdownOpen {
 			switch msg.String() {
 			case "esc":
 				// Close dropdown, stay on field
@@ -161,7 +167,7 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selected := m.keyList.SelectedItem()
 				if selected != nil {
 					if s, ok := selected.(keyItem); ok {
-						m.inputs[5].SetValue(string(s))
+						m.inputs[4].SetValue(string(s))
 					}
 				}
 				m.dropdownOpen = false
@@ -182,11 +188,11 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Handle typing in the field while dropdown is open (Filtering)
 			if isPrintableKey(msg) {
-				newTi, cmd := m.inputs[5].Update(msg)
-				m.inputs[5] = newTi
+				newTi, cmd := m.inputs[4].Update(msg)
+				m.inputs[4] = newTi
 				cmds = append(cmds, cmd)
 
-				cur := strings.TrimSpace(m.inputs[5].Value())
+				cur := strings.TrimSpace(m.inputs[4].Value())
 
 				// If field is empty after backspace, reopen dropdown with all keys
 				if cur == "" {
@@ -221,13 +227,13 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle backspace
-		if m.focusIndex == 5 && !m.usePassword && !m.dropdownOpen {
+		if m.focusIndex == 4 && !m.usePassword && !m.dropdownOpen {
 			if msg.String() == "backspace" || msg.String() == "delete" {
-				newTi, cmd := m.inputs[5].Update(msg)
-				m.inputs[5] = newTi
+				newTi, cmd := m.inputs[4].Update(msg)
+				m.inputs[4] = newTi
 				cmds = append(cmds, cmd)
 
-				cur := strings.TrimSpace(m.inputs[5].Value())
+				cur := strings.TrimSpace(m.inputs[4].Value())
 
 				// If field is empty after backspace, reopen dropdown with all keys
 				if cur == "" {
@@ -259,47 +265,41 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				step = -1
 			}
 
-			// Move focus
-			m.focusIndex += step
+			// Move focus with robust skipping
+			for i := 0; i < len(m.inputs)+2; i++ {
+				m.focusIndex += step
 
-			// Handle skipping logic
-			// Indices: 0=Name, 1=Host, 2=Port, 3=User, 4=Pass, 5=Key, 6=ID(Hidden), 7=SubmitButton
+				// Handle Wrap-around
+				if m.focusIndex > 8 {
+					m.focusIndex = 0
+				} else if m.focusIndex < 0 {
+					m.focusIndex = 8
+				}
 
-			// Skip Password(4) if using Key
-			if !m.usePassword && m.focusIndex == 4 {
-				m.focusIndex += step
-			}
-			// Skip Key(5) if using Password
-			if m.usePassword && m.focusIndex == 5 {
-				m.focusIndex += step
-			}
-			// Skip ID(6) always
-			if m.focusIndex == 6 {
-				m.focusIndex += step
-			}
+				// Check if we should stop at this index
+				// 0-3: Always stop
+				// 4: Only stop if !usePassword (Key File)
+				// 5: Always stop (Password/Passphrase)
+				// 6: Always stop (Sudo Password)
+				// 7: Always skip (ID)
+				// 8: Always stop (Submit)
 
-			// Handle Wrap-around
-			if m.focusIndex > 7 {
-				m.focusIndex = 0
-			} else if m.focusIndex < 0 {
-				m.focusIndex = 7
-			}
+				shouldSkip := false
+				if m.focusIndex == 7 {
+					shouldSkip = true
+				} else if m.focusIndex == 4 && m.usePassword {
+					shouldSkip = true
+				}
 
-			// Re-check skip logic after wrap-around
-			if m.focusIndex == 6 {
-				m.focusIndex += step
-			}
-			if m.usePassword && m.focusIndex == 5 {
-				m.focusIndex += step
-			}
-			if !m.usePassword && m.focusIndex == 4 {
-				m.focusIndex += step
+				if !shouldSkip {
+					break
+				}
 			}
 
-			if m.focusIndex == 5 && !m.usePassword {
+			if m.focusIndex == 4 && !m.usePassword {
 				m.dropdownOpen = true
 				// Reset list to full view initially or filtered by existing text
-				cur := m.inputs[5].Value()
+				cur := m.inputs[4].Value()
 				filtered := filterKeys(m.allKeys, cur)
 				items := make([]list.Item, 0, len(filtered))
 				for _, k := range filtered {
@@ -325,8 +325,8 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "enter":
-			// Check if we are at the submit button (index 7) OR submitting from a field
-			if m.focusIndex == 7 {
+			// Check if we are at the submit button (index 8) OR submitting from a field
+			if m.focusIndex == 8 {
 				if valid, err := m.validateForm(); valid {
 					m.updateConnection()
 					m.submitted = true
@@ -344,14 +344,14 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dropdownOpen = false
 
 			// Adjust focus if currently on the toggleable field
-			if m.usePassword && m.focusIndex == 5 {
-				m.focusIndex = 4
-				m.inputs[5].Blur()
-				m.inputs[4].Focus()
-			} else if !m.usePassword && m.focusIndex == 4 {
+			if m.usePassword && m.focusIndex == 4 {
 				m.focusIndex = 5
 				m.inputs[4].Blur()
 				m.inputs[5].Focus()
+			} else if !m.usePassword && m.focusIndex == 5 {
+				m.focusIndex = 4
+				m.inputs[5].Blur()
+				m.inputs[4].Focus()
 				// Auto-open if we switched into key field
 				m.dropdownOpen = true
 			}
@@ -361,8 +361,8 @@ func (m *ConnectionForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle character input for standard fields
 	// (Key field handled separately in dropdown block if open, but we update it here if closed or fallback)
 	if m.focusIndex < len(m.inputs) {
-		// Avoid double update for index 5 if we already handled it in dropdown block
-		if kmsg, ok := msg.(tea.KeyMsg); ok && m.focusIndex == 5 && m.dropdownOpen && isPrintableKey(kmsg) {
+		// Avoid double update for index 4 if we already handled it in dropdown block
+		if kmsg, ok := msg.(tea.KeyMsg); ok && m.focusIndex == 4 && m.dropdownOpen && isPrintableKey(kmsg) {
 			// already handled
 		} else {
 			newInput, cmd := m.inputs[m.focusIndex].Update(msg)
@@ -414,10 +414,10 @@ func (m *ConnectionForm) View() string {
 
 	// Render conditional input
 	if m.usePassword {
-		b.WriteString(m.inputs[4].View()) // Password
+		b.WriteString(m.inputs[5].View()) // Password
 	} else {
 		// SSH Key input
-		b.WriteString(m.inputs[5].View())
+		b.WriteString(m.inputs[4].View())
 
 		// Render dropdown under SSH key input
 		if m.dropdownOpen {
@@ -429,12 +429,21 @@ func (m *ConnectionForm) View() string {
 				Render(m.keyList.View())
 			b.WriteString("\n" + dropdownBox)
 		}
+
+		// Also show key passphrase field if it's not empty or focused
+		b.WriteString("\n\n")
+		b.WriteString(label("Key Passphrase (optional)") + "\n")
+		b.WriteString(m.inputs[5].View())
 	}
 	b.WriteString("\n\n")
 
-	// Render submit button (Index 7)
+	// Sudo password field
+	b.WriteString(label("Sudo / User Password (optional)") + "\n")
+	b.WriteString(m.inputs[6].View() + "\n\n")
+
+	// Render submit button (Index 8)
 	button := blurredButton
-	if m.focusIndex == 7 {
+	if m.focusIndex == 8 {
 		button = focusedButton
 	}
 	b.WriteString(button)
@@ -507,7 +516,7 @@ func (m *ConnectionForm) validateForm() (bool, string) {
 	}
 
 	// If using key authentication, key path must not be empty
-	if !m.usePassword && strings.TrimSpace(m.inputs[5].Value()) == "" {
+	if !m.usePassword && strings.TrimSpace(m.inputs[4].Value()) == "" {
 		return false, "SSH key path is required for key authentication"
 	}
 
@@ -517,11 +526,11 @@ func (m *ConnectionForm) validateForm() (bool, string) {
 // updateConnection updates the connection from the form inputs
 func (m *ConnectionForm) updateConnection() {
 	// Generate ID if not editing
-	id := m.inputs[6].Value()
+	id := m.inputs[7].Value()
 	if id == "" {
 		id = strings.ReplaceAll(m.inputs[0].Value(), " ", "_") + "_" +
 			strconv.FormatInt(time.Now().UnixNano(), 10)
-		m.inputs[6].SetValue(id)
+		m.inputs[7].SetValue(id)
 	}
 
 	// Parse port
@@ -530,17 +539,16 @@ func (m *ConnectionForm) updateConnection() {
 		port, _ = strconv.Atoi(m.inputs[2].Value())
 	}
 
-	// Update connection
-	m.connection = config.SSHConnection{
-		ID:          id,
-		Name:        m.inputs[0].Value(),
-		Host:        m.inputs[1].Value(),
-		Port:        port,
-		Username:    m.inputs[3].Value(),
-		Password:    strings.TrimSpace(m.inputs[4].Value()),
-		KeyFile:     strings.TrimSpace(m.inputs[5].Value()),
-		UsePassword: m.usePassword,
-	}
+	// Update connection fields while preserving metadata
+	m.connection.ID = id
+	m.connection.Name = m.inputs[0].Value()
+	m.connection.Host = m.inputs[1].Value()
+	m.connection.Port = port
+	m.connection.Username = m.inputs[3].Value()
+	m.connection.KeyFile = strings.TrimSpace(m.inputs[4].Value())
+	m.connection.Password = strings.TrimSpace(m.inputs[5].Value())
+	m.connection.SudoPassword = strings.TrimSpace(m.inputs[6].Value())
+	m.connection.UsePassword = m.usePassword
 }
 
 // ---------- Helper functions ----------
