@@ -267,8 +267,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case StateConnectionList:
 			if m.connectionList != nil {
-				// If delete confirmation is showing, pass ALL keys to connectionList
-				if m.connectionList.IsShowingDeleteConfirm() {
+				// If delete confirmation or password modal is showing, pass ALL keys to connectionList
+				if m.connectionList.IsShowingDeleteConfirm() || m.connectionList.IsShowingPasswordModal() {
 					model, cmd := m.connectionList.Update(msg)
 					m.connectionList = model.(*components.ConnectionList)
 					return m, cmd
@@ -308,6 +308,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					model, cmd := m.connectionList.Update(msg)
 					m.connectionList = model.(*components.ConnectionList)
 					return m, cmd
+				case msg.String() == "p" || msg.String() == "P":
+					// Show password modal for highlighted connection
+					if conn := m.connectionList.HighlightedConnection(); conn != nil {
+						// Fetch full connection with password
+						fullConn, ok := m.storageBackend.GetConnection(conn.ID)
+						if ok {
+							m.connectionList.ShowPassword(fullConn.Password)
+							return m, nil
+						}
+					}
+				case msg.String() == "c" || msg.String() == "C":
+					// Copy password directly to clipboard
+					if conn := m.connectionList.HighlightedConnection(); conn != nil {
+						fullConn, ok := m.storageBackend.GetConnection(conn.ID)
+						if ok && fullConn.Password != "" {
+							if err := components.CopyToClipboard(fullConn.Password); err == nil {
+								m.errorMessage = "Password copied to clipboard!"
+								return m, nil
+							}
+						} else if ok && fullConn.Password == "" {
+							m.errorMessage = "No password stored for this connection"
+							return m, nil
+						}
+					}
 				case msg.String() == "s":
 					// Open SCP file manager
 					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil {

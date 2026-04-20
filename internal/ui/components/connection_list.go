@@ -104,6 +104,10 @@ type ConnectionList struct {
 	deleteConfirm     *DeleteConfirmation
 	pendingDelete     *config.SSHConnection
 
+	// Password modal
+	showPasswordModal bool
+	passwordModal     *PasswordModal
+
 	// layout stores the current column widths for header rendering
 	layout connectionDelegate
 }
@@ -175,6 +179,20 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return cl, cmd
 	}
 
+	// If password modal is showing, delegate to it
+	if cl.showPasswordModal && cl.passwordModal != nil {
+		var modalModel tea.Model
+		modalModel, cmd = cl.passwordModal.Update(msg)
+		cl.passwordModal = modalModel.(*PasswordModal)
+
+		if cl.passwordModal.IsCanceled() {
+			cl.showPasswordModal = false
+			cl.passwordModal = nil
+		}
+
+		return cl, cmd
+	}
+
 	switch msg := msg.(type) {
 	case ToggleOpenInNewTerminalMsg:
 		return cl, nil
@@ -184,6 +202,10 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Also update delete confirmation if it exists
 		if cl.deleteConfirm != nil {
 			cl.deleteConfirm.SetSize(msg.Width, msg.Height)
+		}
+		// Also update password modal if it exists
+		if cl.passwordModal != nil {
+			cl.passwordModal.SetSize(msg.Width, msg.Height)
 		}
 		return cl, nil
 
@@ -267,6 +289,20 @@ func (cl *ConnectionList) View() string {
 		)
 	}
 
+	// If password modal is showing, overlay it on top
+	if cl.showPasswordModal && cl.passwordModal != nil {
+		modalView := cl.passwordModal.View()
+		return lipgloss.Place(
+			cl.list.Width(),
+			cl.list.Height(),
+			lipgloss.Center,
+			lipgloss.Center,
+			modalView,
+			lipgloss.WithWhitespaceChars(" "),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color("0")),
+		)
+	}
+
 	return listView
 }
 
@@ -282,6 +318,16 @@ func (cl *ConnectionList) ToggleOpenInNewTerminal() {
 
 func (cl *ConnectionList) IsShowingDeleteConfirm() bool {
 	return cl.showDeleteConfirm
+}
+
+func (cl *ConnectionList) IsShowingPasswordModal() bool {
+	return cl.showPasswordModal
+}
+
+func (cl *ConnectionList) ShowPassword(password string) {
+	cl.passwordModal = NewPasswordModal(password)
+	cl.passwordModal.SetSize(cl.list.Width(), cl.list.Height())
+	cl.showPasswordModal = true
 }
 
 func (cl *ConnectionList) SetConnections(connections []config.SSHConnection) {
