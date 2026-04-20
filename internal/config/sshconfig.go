@@ -141,6 +141,14 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 				if orgID, ok := sxtMetadata["organization_id"]; ok {
 					currentConn.OrganizationID = orgID
 				}
+				if pinned, ok := sxtMetadata["pinned"]; ok {
+					currentConn.Pinned = pinned == "true"
+				}
+				if order, ok := sxtMetadata["order"]; ok {
+					if o, err := strconv.Atoi(order); err == nil {
+						currentConn.Order = o
+					}
+				}
 			}
 
 			// Generate ID if not set
@@ -230,6 +238,12 @@ func (scm *SSHConfigManager) writeSSHConfig() error {
 			conn.Password = "" // Don't keep in memory
 		}
 
+		// Store sudo password if it exists
+		if conn.SudoPassword != "" {
+			keyring.Set(sshKeyringService, "sudo:"+conn.ID, conn.SudoPassword)
+			conn.SudoPassword = "" // Don't keep in memory
+		}
+
 		// Write metadata comments
 		fmt.Fprintf(writer, "%sid=%s\n", sxtCommentPrefix, conn.ID)
 		if conn.Name != "" {
@@ -244,6 +258,12 @@ func (scm *SSHConfigManager) writeSSHConfig() error {
 		}
 		if conn.OrganizationID != "" {
 			fmt.Fprintf(writer, "%sorganization_id=%s\n", sxtCommentPrefix, conn.OrganizationID)
+		}
+		if conn.Pinned {
+			fmt.Fprintf(writer, "%spinned=true\n", sxtCommentPrefix)
+		}
+		if conn.Order != 0 {
+			fmt.Fprintf(writer, "%sorder=%d\n", sxtCommentPrefix, conn.Order)
 		}
 
 		// Write SSH config
@@ -291,6 +311,15 @@ func (scm *SSHConfigManager) AddConnection(conn SSHConnection) error {
 		conn.Password = ""
 	}
 
+	// Handle sudo password securely using keyring
+	if conn.SudoPassword != "" {
+		if err := keyring.Set(sshKeyringService, "sudo:"+conn.ID, conn.SudoPassword); err != nil {
+			log.Printf("Failed to store sudo password in keyring: %v", err)
+			return err
+		}
+		conn.SudoPassword = ""
+	}
+
 	// Check if connection already exists
 	for i, existing := range scm.Config.Connections {
 		if existing.ID == conn.ID {
@@ -314,6 +343,15 @@ func (scm *SSHConfigManager) EditConnection(conn SSHConnection) error {
 		conn.Password = ""
 	}
 
+	// Handle sudo password securely using keyring
+	if conn.SudoPassword != "" {
+		if err := keyring.Set(sshKeyringService, "sudo:"+conn.ID, conn.SudoPassword); err != nil {
+			log.Printf("Failed to store sudo password in keyring: %v", err)
+			return err
+		}
+		conn.SudoPassword = ""
+	}
+
 	for i, existing := range scm.Config.Connections {
 		if existing.ID == conn.ID {
 			scm.Config.Connections[i] = conn
@@ -330,6 +368,11 @@ func (scm *SSHConfigManager) DeleteConnection(id string) error {
 	// Remove password from keyring
 	if err := keyring.Delete(sshKeyringService, id); err != nil {
 		log.Printf("Failed to delete password from keyring (may not exist): %v", err)
+	}
+
+	// Remove sudo password from keyring
+	if err := keyring.Delete(sshKeyringService, "sudo:"+id); err != nil {
+		log.Printf("Failed to delete sudo password from keyring (may not exist): %v", err)
 	}
 
 	for i, conn := range scm.Config.Connections {
@@ -363,6 +406,16 @@ func (scm *SSHConfigManager) GetConnection(id string) (SSHConnection, bool) {
 				conn.Password = password
 				log.Printf("Retrieved password from keyring for connection ID: %s (key: %s)", id, keyringKey)
 			}
+
+			// Retrieve sudo password from keyring
+			sudoPassword, err := keyring.Get(sshKeyringService, "sudo:"+id)
+			if err != nil {
+				log.Printf("Failed to retrieve sudo password from keyring (key: %s): %v", "sudo:"+id, err)
+			} else {
+				conn.SudoPassword = sudoPassword
+				log.Printf("Retrieved sudo password from keyring for connection ID: %s", id)
+			}
+
 			return conn, true
 		}
 	}

@@ -1,6 +1,8 @@
 package components
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -8,8 +10,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type PasswordEntry struct {
+	Label    string
+	Password string
+}
+
 type PasswordModal struct {
-	password    string
+	entries     []PasswordEntry
+	index       int
 	copied      bool
 	canceled    bool
 	width       int
@@ -21,7 +29,13 @@ type resetCopiedMsg struct{}
 
 func NewPasswordModal(password string) *PasswordModal {
 	return &PasswordModal{
-		password: password,
+		entries: []PasswordEntry{{Label: "Password", Password: password}},
+	}
+}
+
+func NewMultiPasswordModal(entries []PasswordEntry) *PasswordModal {
+	return &PasswordModal{
+		entries: entries,
 	}
 }
 
@@ -45,13 +59,25 @@ func (m *PasswordModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "up", "k":
+			if m.index > 0 {
+				m.index--
+				m.copied = false
+			}
+		case "down", "j":
+			if m.index < len(m.entries)-1 {
+				m.index++
+				m.copied = false
+			}
 		case "c", "C":
-			err := CopyToClipboard(m.password)
-			if err == nil {
-				m.copied = true
-				return m, tea.Tick(time.Second*2, func(t time.Time) tea.Msg {
-					return resetCopiedMsg{}
-				})
+			if len(m.entries) > 0 {
+				err := CopyToClipboard(m.entries[m.index].Password)
+				if err == nil {
+					m.copied = true
+					return m, tea.Tick(time.Second*2, func(t time.Time) tea.Msg {
+						return resetCopiedMsg{}
+					})
+				}
 			}
 		case "esc", "enter", "q":
 			m.canceled = true
@@ -70,21 +96,39 @@ func (m *PasswordModal) View() string {
 		return ""
 	}
 
+	titleText := "🔑 Connection Password"
+	if len(m.entries) > 1 {
+		titleText = "🔑 Select Password to Copy"
+	}
+
 	title := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(colorPrimary).
-		Render("🔑 Connection Password")
+		Render(titleText)
 
-	passDisplay := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("212")). // Pinkish color for password
-		Bold(true).
-		Render(m.password)
-	
-	if m.password == "" {
-		passDisplay = lipgloss.NewStyle().
-			Foreground(colorInactive).
-			Italic(true).
-			Render("(No password stored)")
+	var content strings.Builder
+	content.WriteString(title + "\n\n")
+
+	for i, entry := range m.entries {
+		style := lipgloss.NewStyle().Foreground(colorSubText)
+		prefix := "  "
+		if i == m.index && len(m.entries) > 1 {
+			style = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+			prefix = "> "
+		}
+
+		label := style.Render(prefix + entry.Label + ":")
+		pass := entry.Password
+		if pass == "" {
+			pass = "(empty)"
+		}
+
+		passStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
+		if i != m.index && len(m.entries) > 1 {
+			passStyle = lipgloss.NewStyle().Foreground(colorInactive)
+		}
+
+		content.WriteString(fmt.Sprintf("%s %s\n", label, passStyle.Render(pass)))
 	}
 
 	copyStatus := " "
@@ -93,29 +137,26 @@ func (m *PasswordModal) View() string {
 			Foreground(lipgloss.Color("42")). // Green
 			Render("✓ Copied to clipboard!")
 	}
+	content.WriteString("\n" + copyStatus + "\n")
+
+	promptText := "Press C to copy, Esc/Enter to close"
+	if len(m.entries) > 1 {
+		promptText = "↑/↓ to select, C to copy, Esc/Enter to close"
+	}
 
 	prompt := lipgloss.NewStyle().
 		Foreground(colorInactive).
-		Render("Press C to copy, Esc/Enter to close")
-
-	content := lipgloss.JoinVertical(lipgloss.Center,
-		title,
-		"\n",
-		passDisplay,
-		"\n",
-		copyStatus,
-		"\n",
-		prompt,
-	)
+		Render(promptText)
+	content.WriteString(prompt)
 
 	// Wrap in a bordered box
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorPrimary).
 		Padding(1, 3).
-		Width(50).
+		Width(55).
 		Align(lipgloss.Center).
-		Render(content)
+		Render(content.String())
 
 	// Center on screen
 	return lipgloss.Place(

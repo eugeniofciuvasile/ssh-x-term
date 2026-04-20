@@ -56,6 +56,16 @@ func (cm *ConfigManager) AddConnection(conn SSHConnection) error {
 		conn.Password = ""
 	}
 
+	// Handle sudo password securely using keyring
+	if conn.SudoPassword != "" {
+		if err := keyring.Set(keyringService, "sudo:"+conn.ID, conn.SudoPassword); err != nil {
+			log.Printf("Failed to store sudo password in keyring: %v", err)
+			return err
+		}
+		// Unset sudo password in plaintext config
+		conn.SudoPassword = ""
+	}
+
 	for i, existing := range cm.Config.Connections {
 		if existing.ID == conn.ID {
 			cm.Config.Connections[i] = conn
@@ -79,6 +89,16 @@ func (cm *ConfigManager) EditConnection(conn SSHConnection) error {
 		conn.Password = ""
 	}
 
+	// Handle sudo password securely using keyring
+	if conn.SudoPassword != "" {
+		if err := keyring.Set(keyringService, "sudo:"+conn.ID, conn.SudoPassword); err != nil {
+			log.Printf("Failed to store sudo password in keyring: %v", err)
+			return err
+		}
+		// Unset sudo password in plaintext config
+		conn.SudoPassword = ""
+	}
+
 	for i, existing := range cm.Config.Connections {
 		if existing.ID == conn.ID {
 			cm.Config.Connections[i] = conn
@@ -94,6 +114,11 @@ func (cm *ConfigManager) DeleteConnection(id string) error {
 	// Remove password from keyring
 	if err := keyring.Delete(keyringService, id); err != nil {
 		log.Printf("Failed to delete password from keyring (may not exist): %v", err)
+	}
+
+	// Remove sudo password from keyring
+	if err := keyring.Delete(keyringService, "sudo:"+id); err != nil {
+		log.Printf("Failed to delete sudo password from keyring (may not exist): %v", err)
 	}
 
 	for i, conn := range cm.Config.Connections {
@@ -126,6 +151,16 @@ func (cm *ConfigManager) GetConnection(id string) (SSHConnection, bool) {
 				conn.Password = password
 				log.Printf("Retrieved password from keyring for connection ID: %s (key: %s)", id, keyringKey)
 			}
+
+			// Retrieve sudo password from keyring
+			sudoPassword, err := keyring.Get(keyringService, "sudo:"+id)
+			if err != nil {
+				log.Printf("Failed to retrieve sudo password from keyring (key: %s): %v", "sudo:"+id, err)
+			} else {
+				conn.SudoPassword = sudoPassword
+				log.Printf("Retrieved sudo password from keyring for connection ID: %s", id)
+			}
+
 			return conn, true
 		}
 	}

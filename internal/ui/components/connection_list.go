@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -17,11 +18,28 @@ type DeleteConnectionMsg struct {
 	Connection config.SSHConnection
 }
 
+type RenameConnectionMsg struct {
+	Connection config.SSHConnection
+	NewName    string
+}
+
+type TogglePinnedMsg struct {
+	Connection config.SSHConnection
+}
+
+type MoveConnectionUpMsg struct {
+	Connection config.SSHConnection
+}
+
+type MoveConnectionDownMsg struct {
+	Connection config.SSHConnection
+}
+
 type connectionItem struct {
 	connection config.SSHConnection
 }
 
-func (i connectionItem) FilterValue() string { return i.connection.Name }
+func (i connectionItem) FilterValue() string { return i.connection.Name + " " + i.connection.Host }
 
 // connectionDelegate handles the rendering of each list item with dynamic widths
 type connectionDelegate struct {
@@ -55,7 +73,11 @@ func (d connectionDelegate) Render(w io.Writer, m list.Model, index int, listIte
 	}
 
 	// Format columns using the dynamic widths stored in the delegate
-	name := truncate(conn.Name, d.nameWidth)
+	name := conn.Name
+	if conn.Pinned {
+		name = "📌 " + name
+	}
+	name = truncate(name, d.nameWidth)
 	host := truncate(conn.Host, d.hostWidth)
 	user := truncate(conn.Username, d.userWidth)
 	port := truncate(fmt.Sprintf("%d", conn.Port), d.portWidth)
@@ -94,7 +116,7 @@ func truncate(s string, max int) string {
 
 type ConnectionList struct {
 	list              list.Model
-	connections       []config.SSHConnection
+	Connections       []config.SSHConnection
 	selectedConn      *config.SSHConnection
 	highlightedConn   *config.SSHConnection
 	openInNewTerminal bool
@@ -108,13 +130,47 @@ type ConnectionList struct {
 	showPasswordModal bool
 	passwordModal     *PasswordModal
 
+	// Rename modal
+	showRenameModal bool
+	renameModal     *RenameModal
+
 	// layout stores the current column widths for header rendering
 	layout connectionDelegate
 }
 
+func sortConnections(connections []config.SSHConnection) []config.SSHConnection {
+	sorted := make([]config.SSHConnection, len(connections))
+	copy(sorted, connections)
+	slices.SortStableFunc(sorted, func(a, b config.SSHConnection) int {
+		if a.Pinned && !b.Pinned {
+			return -1
+		}
+		if !a.Pinned && b.Pinned {
+			return 1
+		}
+		// If both have same pinned status, sort by order
+		if a.Order < b.Order {
+			return -1
+		}
+		if a.Order > b.Order {
+			return 1
+		}
+		// If order is same, sort by name
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+		return 0
+	})
+	return sorted
+}
+
 func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
-	items := make([]list.Item, len(connections))
-	for i, conn := range connections {
+	sorted := sortConnections(connections)
+	items := make([]list.Item, len(sorted))
+	for i, conn := range sorted {
 		items[i] = connectionItem{connection: conn}
 	}
 
@@ -131,13 +187,13 @@ func NewConnectionList(connections []config.SSHConnection) *ConnectionList {
 	l.Styles.PaginationStyle = paginationStyle
 
 	var highlighted *config.SSHConnection
-	if len(connections) > 0 {
-		highlighted = &connections[0]
+	if len(sorted) > 0 {
+		highlighted = &sorted[0]
 	}
 
 	cl := &ConnectionList{
 		list:              l,
-		connections:       connections,
+		Connections:       sorted,
 		highlightedConn:   highlighted,
 		openInNewTerminal: config.IsTmuxAvailable,
 		layout:            defaultDelegate,
@@ -193,6 +249,31 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return cl, cmd
 	}
 
+	// If rename modal is showing, delegate to it
+	if cl.showRenameModal && cl.renameModal != nil {
+		var modalModel tea.Model
+		modalModel, cmd = cl.renameModal.Update(msg)
+		cl.renameModal = modalModel.(*RenameModal)
+
+		if cl.renameModal.IsConfirmed() {
+			cl.showRenameModal = false
+			if cl.highlightedConn != nil {
+				renameMsg := RenameConnectionMsg{
+					Connection: *cl.highlightedConn,
+					NewName:    cl.renameModal.Value(),
+				}
+				cl.renameModal = nil
+				return cl, func() tea.Msg { return renameMsg }
+			}
+			cl.renameModal = nil
+		} else if cl.renameModal.IsCanceled() {
+			cl.showRenameModal = false
+			cl.renameModal = nil
+		}
+
+		return cl, cmd
+	}
+
 	switch msg := msg.(type) {
 	case ToggleOpenInNewTerminalMsg:
 		return cl, nil
@@ -206,6 +287,10 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Also update password modal if it exists
 		if cl.passwordModal != nil {
 			cl.passwordModal.SetSize(msg.Width, msg.Height)
+		}
+		// Also update rename modal if it exists
+		if cl.renameModal != nil {
+			cl.renameModal.SetSize(msg.Width, msg.Height)
 		}
 		return cl, nil
 
@@ -249,7 +334,7 @@ func (cl *ConnectionList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (cl *ConnectionList) View() string {
-	if len(cl.connections) == 0 {
+	if len(cl.Connections) == 0 {
 		// Simplified message since global title handles context
 		return "\n\n  No connections found. Press 'a' to add a connection.\n\n"
 	}
@@ -303,6 +388,20 @@ func (cl *ConnectionList) View() string {
 		)
 	}
 
+	// If rename modal is showing, overlay it on top
+	if cl.showRenameModal && cl.renameModal != nil {
+		modalView := cl.renameModal.View()
+		return lipgloss.Place(
+			cl.list.Width(),
+			cl.list.Height(),
+			lipgloss.Center,
+			lipgloss.Center,
+			modalView,
+			lipgloss.WithWhitespaceChars(" "),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color("0")),
+		)
+	}
+
 	return listView
 }
 
@@ -324,19 +423,86 @@ func (cl *ConnectionList) IsShowingPasswordModal() bool {
 	return cl.showPasswordModal
 }
 
-func (cl *ConnectionList) ShowPassword(password string) {
-	cl.passwordModal = NewPasswordModal(password)
+func (cl *ConnectionList) IsShowingRenameModal() bool {
+	return cl.showRenameModal
+}
+
+func (cl *ConnectionList) ShowPassword(conn config.SSHConnection) {
+	entries := []PasswordEntry{}
+	if conn.Password != "" {
+		label := "Password"
+		if !conn.UsePassword {
+			label = "Key Passphrase"
+		}
+		entries = append(entries, PasswordEntry{Label: label, Password: conn.Password})
+	}
+	if conn.SudoPassword != "" {
+		entries = append(entries, PasswordEntry{Label: "Sudo Password", Password: conn.SudoPassword})
+	}
+
+	if len(entries) == 0 {
+		cl.passwordModal = NewPasswordModal("")
+	} else if len(entries) == 1 {
+		cl.passwordModal = NewPasswordModal(entries[0].Password)
+		// Set the label correctly even for single entry
+		cl.passwordModal = NewMultiPasswordModal(entries)
+	} else {
+		cl.passwordModal = NewMultiPasswordModal(entries)
+	}
+
 	cl.passwordModal.SetSize(cl.list.Width(), cl.list.Height())
 	cl.showPasswordModal = true
 }
 
+func (cl *ConnectionList) ShowRename() {
+	if cl.highlightedConn == nil {
+		return
+	}
+	cl.renameModal = NewRenameModal(cl.highlightedConn.Name, cl.highlightedConn.Host)
+	cl.renameModal.SetSize(cl.list.Width(), cl.list.Height())
+	cl.showRenameModal = true
+}
+
+func (cl *ConnectionList) Rename() tea.Cmd {
+	if cl.highlightedConn == nil {
+		return nil
+	}
+	cl.ShowRename()
+	return nil
+}
+
 func (cl *ConnectionList) SetConnections(connections []config.SSHConnection) {
-	cl.connections = connections
-	items := make([]list.Item, len(connections))
-	for i, conn := range connections {
+	sorted := sortConnections(connections)
+	cl.Connections = sorted
+	items := make([]list.Item, len(sorted))
+	for i, conn := range sorted {
 		items[i] = connectionItem{connection: conn}
 	}
 	cl.list.SetItems(items)
+}
+
+func (cl *ConnectionList) TogglePinned() tea.Cmd {
+	if cl.highlightedConn == nil {
+		return nil
+	}
+	conn := *cl.highlightedConn
+	return func() tea.Msg { return TogglePinnedMsg{Connection: conn} }
+}
+
+func (cl *ConnectionList) MoveUp() tea.Cmd {
+	if cl.highlightedConn == nil {
+		return nil
+	}
+	conn := *cl.highlightedConn
+	return func() tea.Msg { return MoveConnectionUpMsg{Connection: conn} }
+}
+
+func (cl *ConnectionList) MoveDown() tea.Cmd {
+	if cl.highlightedConn == nil {
+		return nil
+	}
+	conn := *cl.highlightedConn
+	return func() tea.Msg { return MoveConnectionDownMsg{Connection: conn} }
 }
 
 func (cl *ConnectionList) List() *list.Model { return &cl.list }
@@ -344,8 +510,8 @@ func (cl *ConnectionList) List() *list.Model { return &cl.list }
 func (cl *ConnectionList) Reset() {
 	cl.selectedConn = nil
 	cl.list.Select(0)
-	if len(cl.connections) > 0 {
-		cl.highlightedConn = &cl.connections[0]
+	if len(cl.Connections) > 0 {
+		cl.highlightedConn = &cl.Connections[0]
 	} else {
 		cl.highlightedConn = nil
 	}
@@ -384,8 +550,8 @@ func (cl *ConnectionList) recalculateTableLayout(totalWidth int) {
 	remaining := availableWidth - portW - authW
 
 	// Distribute remaining space:
-	// Name: 35%, Host: 35%, User: 30%
-	nameW := int(float64(remaining) * 0.35)
+	// Name: 40%, Host: 35%, User: 25%
+	nameW := int(float64(remaining) * 0.40)
 	hostW := int(float64(remaining) * 0.35)
 	userW := remaining - nameW - hostW // Give remainder to user to avoid rounding gaps
 

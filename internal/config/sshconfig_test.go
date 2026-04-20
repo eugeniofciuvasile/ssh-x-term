@@ -140,13 +140,14 @@ func TestSSHConfigWriting(t *testing.T) {
 
 	// Add a connection
 	conn := SSHConnection{
-		ID:          "test-write-1",
-		Name:        "Write Test",
-		Host:        "writetest.example.com",
-		Port:        22,
-		Username:    "writeuser",
-		UsePassword: true,
-		Notes:       "Write test notes",
+		ID:           "test-write-1",
+		Name:         "Write Test",
+		Host:         "writetest.example.com",
+		Port:         22,
+		Username:     "writeuser",
+		UsePassword:  true,
+		SudoPassword: "sudo-test-pass",
+		Notes:        "Write test notes",
 	}
 
 	if err := scm.AddConnection(conn); err != nil {
@@ -170,6 +171,15 @@ func TestSSHConfigWriting(t *testing.T) {
 
 	if connections[0].Name != "Write Test" {
 		t.Errorf("Expected name 'Write Test', got '%s'", connections[0].Name)
+	}
+
+	// Verify sudo password was retrieved (via GetConnection as ListConnections doesn't include it for security in some managers, but SSHConfigManager.Load parses it from config if it was there? No, it's in keyring)
+	fullConn, ok := scm2.GetConnection("test-write-1")
+	if !ok {
+		t.Fatal("Failed to get full connection")
+	}
+	if fullConn.SudoPassword != "sudo-test-pass" {
+		t.Errorf("Expected sudo password 'sudo-test-pass', got '%s'", fullConn.SudoPassword)
 	}
 }
 

@@ -160,7 +160,7 @@ func (m *Model) getHelpText() string {
 
 	switch m.state {
 	case StateConnectionList:
-		return "a: add | e: edit | d: delete | p: password | c: copy | s: scp | / filter | o: toggle new terminal | enter: connect | ctrl+c: quit"
+		return "a: add | e: edit | d: delete | f: pin | K/J: move | r: rename | p: pass | c: copy | s: scp | / filter | o: toggle new terminal | enter: connect | ctrl+c: quit"
 	case StateSSHTerminal:
 		if m.terminal != nil {
 			if m.terminal.IsSessionClosed() {
