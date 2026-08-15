@@ -63,7 +63,7 @@ type (
 	}
 )
 
-// AppState type
+// AppState represents the active screen or modal view in the application
 type AppState int
 
 const (
@@ -79,6 +79,10 @@ const (
 	StateOrganizationSelect
 	StateCollectionSelect
 	StateSSHPassphrase
+	StateTunnelManager
+	StateAddTunnel
+	StateEditTunnel
+	StateTunnelGraph
 
 	// Layout constants for full-screen UI
 	headerHeight  = 1 // Header line at top
@@ -88,6 +92,7 @@ const (
 	defaultHeight = 20
 )
 
+// Model is the main Bubble Tea model coordinating all views, forms, and states
 type Model struct {
 	state                     AppState
 	storageSelect             *components.StorageSelect
@@ -99,6 +104,10 @@ type Model struct {
 	connectionForm            *components.ConnectionForm
 	terminal                  *components.TerminalComponent
 	scpManager                *components.SCPManager
+	tunnelManager             *components.TunnelManager
+	tunnelForm                *components.TunnelForm
+	tunnelGraph               *components.TunnelGraphView
+	currentTunnelConn         *config.SSHConnection
 	bitwardenForm             *components.BitwardenConfigForm
 	errorMessage              string
 	bitwardenLoginForm        *components.BitwardenLoginForm
@@ -113,6 +122,7 @@ type Model struct {
 	formHasError              bool
 }
 
+// NewModel creates and initializes the root application model
 func NewModel() *Model {
 	s := spinner.New()
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
@@ -126,6 +136,7 @@ func NewModel() *Model {
 	}
 }
 
+// Init starts initial timers and background tickers
 func (m *Model) Init() tea.Cmd {
 	return m.spinner.Tick
 }
@@ -338,6 +349,12 @@ func (m *Model) getActiveComponent() tea.Model {
 		return m.scpManager
 	case StateSSHPassphrase:
 		return m.sshPassphraseForm
+	case StateTunnelManager:
+		return m.tunnelManager
+	case StateAddTunnel, StateEditTunnel:
+		return m.tunnelForm
+	case StateTunnelGraph:
+		return m.tunnelGraph
 	default:
 		return nil
 	}
@@ -565,6 +582,43 @@ func (m *Model) handleComponentResult(model tea.Model, cmd tea.Cmd) tea.Cmd {
 				_, sizeCmd := m.terminal.Update(sizeMsg)
 				return tea.Batch(initCmd, sizeCmd)
 			}
+		}
+	case StateTunnelGraph:
+		m.tunnelGraph = model.(*components.TunnelGraphView)
+		if m.tunnelGraph.IsFinished() {
+			m.tunnelGraph = nil
+			m.state = StateTunnelManager
+			return nil
+		}
+	case StateAddTunnel, StateEditTunnel:
+		m.tunnelForm = model.(*components.TunnelForm)
+		if m.tunnelForm.IsCanceled() {
+			m.tunnelForm = nil
+			m.state = StateTunnelManager
+			return nil
+		}
+		if m.tunnelForm.IsSubmitted() {
+			tun := m.tunnelForm.Tunnel()
+			conn := m.tunnelForm.Connection
+			if m.state == StateEditTunnel {
+				for i, t := range conn.Tunnels {
+					if t.ID == tun.ID {
+						conn.Tunnels[i] = tun
+						break
+					}
+				}
+			} else {
+				conn.Tunnels = append(conn.Tunnels, tun)
+			}
+			if m.storageBackend != nil {
+				_ = m.storageBackend.EditConnection(conn)
+			}
+			m.currentTunnelConn = &conn
+			m.tunnelManager = components.NewTunnelManager(conn)
+			m.tunnelManager.SetSize(m.width, m.listHeight())
+			m.tunnelForm = nil
+			m.state = StateTunnelManager
+			return nil
 		}
 	}
 	return cmd

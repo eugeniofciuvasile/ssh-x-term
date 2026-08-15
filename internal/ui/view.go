@@ -87,10 +87,26 @@ func (m *Model) View() string {
 		title = "SCP File Manager"
 	case StateSSHPassphrase:
 		title = "SSH Authentication Required"
+	case StateTunnelManager:
+		if m.currentTunnelConn != nil {
+			title = fmt.Sprintf("SSH Port Forwarding Tunnels - %s", m.currentTunnelConn.Name)
+		} else {
+			title = "SSH Port Forwarding Tunnels"
+		}
+	case StateAddTunnel:
+		title = "Add Port Forwarding Tunnel"
+	case StateEditTunnel:
+		title = "Edit Port Forwarding Tunnel"
+	case StateTunnelGraph:
+		if m.currentTunnelConn != nil {
+			title = fmt.Sprintf("Tunnel Topology Graph - %s", m.currentTunnelConn.Name)
+		} else {
+			title = "Tunnel Topology Graph"
+		}
 	}
 
 	// Note: We removed the spinner from the header here
-	header := headerStyle.Render(title)
+	header := strings.TrimRight(headerStyle.Render(title), "\r\n")
 	// --------------------------------
 
 	// --- Render Content ---
@@ -105,8 +121,9 @@ func (m *Model) View() string {
 
 		content = lipgloss.NewStyle().
 			Width(m.width).
-			Height(contentHeight-1).
-			Align(lipgloss.Center, lipgloss.Center). // Center Horizontally and Vertically
+			Height(contentHeight).
+			MaxHeight(contentHeight).
+			Align(lipgloss.Center, lipgloss.Center).
 			Render(spinnerView)
 
 	} else {
@@ -132,21 +149,19 @@ func (m *Model) View() string {
 			contentBuilder.WriteString(contentStyle.Render("No active component"))
 		}
 
-		content = contentBuilder.String()
+		content = strings.TrimRight(contentBuilder.String(), "\r\n")
 
-		// For specific states, ensure content fills the space manually
-		// (Lipgloss styles inside the component usually handle this, but this is a safety net)
-		if m.state == StateSSHTerminal || m.state == StateSCPFileManager {
-			content = lipgloss.NewStyle().
-				Height(contentHeight).
-				Width(m.width).
-				Render(content)
-		}
+		// Ensure content fills the exact content area between header and footer
+		content = lipgloss.NewStyle().
+			Height(contentHeight).
+			Width(m.width).
+			MaxHeight(contentHeight).
+			Render(content)
 	}
 
 	// Render footer with help text
 	footerText := m.getHelpText()
-	footer := footerStyle.Render(footerText)
+	footer := strings.TrimRight(footerStyle.Render(footerText), "\r\n")
 
 	// Combine header, content, and footer to fill entire terminal
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, footer)
@@ -160,7 +175,13 @@ func (m *Model) getHelpText() string {
 
 	switch m.state {
 	case StateConnectionList:
-		return "a: add | e: edit | d: delete | f: pin | K/J: move | r: rename | p: pass | c: copy | s: scp | / filter | o: toggle new terminal | enter: connect | ctrl+c: quit"
+		return "a: add | e: edit | d: delete | t: tunnels | f: pin | K/J: move | r: rename | p: pass | c: copy | s: scp | / filter | o: new term | enter: connect"
+	case StateTunnelManager:
+		return "space/enter: toggle active | a: add | e: edit | d: delete | v/g: topology graph | esc: back to hosts"
+	case StateAddTunnel, StateEditTunnel:
+		return "tab: next field | ctrl+t: cycle type (-L/-R/-D) | ctrl+a: auto-start | enter: save | esc: cancel"
+	case StateTunnelGraph:
+		return "space/enter: toggle active | x: live inspector | y: copy data | m: hex/ascii mode | ←/→: switch | esc: back"
 	case StateSSHTerminal:
 		if m.terminal != nil {
 			if m.terminal.IsSessionClosed() {

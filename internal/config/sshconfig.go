@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -23,11 +24,13 @@ const (
 	migrationMarkerFile = ".migration_done"
 )
 
+// SSHConfigManager handles loading, parsing, and persisting SSH host configs and tunnels
 type SSHConfigManager struct {
 	ConfigPath string
 	Config     *Config
 }
 
+// NewSSHConfigManager initializes an SSHConfigManager targeting ~/.ssh/config
 func NewSSHConfigManager() (*SSHConfigManager, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -63,6 +66,7 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 	scanner := bufio.NewScanner(file)
 	var currentConn *SSHConnection
 	var sxtMetadata map[string]string
+	var sxtTunnels []string
 	connections := []SSHConnection{}
 
 	for scanner.Scan() {
@@ -70,15 +74,19 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 
 		// Parse sxt metadata comments
 		if strings.HasPrefix(line, sxtCommentPrefix) {
-			if sxtMetadata == nil {
-				sxtMetadata = make(map[string]string)
-			}
 			metadata := strings.TrimPrefix(line, sxtCommentPrefix)
 			parts := strings.SplitN(metadata, "=", 2)
 			if len(parts) == 2 {
 				key := strings.TrimSpace(parts[0])
 				value := strings.TrimSpace(parts[1])
-				sxtMetadata[key] = value
+				if key == "tunnel" {
+					sxtTunnels = append(sxtTunnels, value)
+				} else {
+					if sxtMetadata == nil {
+						sxtMetadata = make(map[string]string)
+					}
+					sxtMetadata[key] = value
+				}
 			}
 			continue
 		}
@@ -88,6 +96,7 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 			// Reset metadata on empty line or regular comment if we're not in a Host block
 			if currentConn == nil {
 				sxtMetadata = nil
+				sxtTunnels = nil
 			}
 			continue
 		}
@@ -119,6 +128,7 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 				Port:        22,    // Default SSH port
 				HostPattern: value, // Store the Host pattern
 				UsePassword: true,  // Default to password auth
+				Tunnels:     []TunnelConfig{},
 			}
 
 			// Apply metadata to new connection
@@ -151,6 +161,14 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 				}
 			}
 
+			// Apply tunnel metadata if any
+			for _, tunJSON := range sxtTunnels {
+				var tun TunnelConfig
+				if err := json.Unmarshal([]byte(tunJSON), &tun); err == nil {
+					currentConn.Tunnels = append(currentConn.Tunnels, tun)
+				}
+			}
+
 			// Generate ID if not set
 			if currentConn.ID == "" {
 				currentConn.ID = generateID()
@@ -163,6 +181,7 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 
 			// Reset metadata for next host
 			sxtMetadata = nil
+			sxtTunnels = nil
 
 		} else if currentConn != nil {
 			switch keyword {
@@ -193,6 +212,12 @@ func (scm *SSHConfigManager) parseSSHConfig() error {
 
 	// Save last connection
 	if currentConn != nil {
+		for _, tunJSON := range sxtTunnels {
+			var tun TunnelConfig
+			if err := json.Unmarshal([]byte(tunJSON), &tun); err == nil {
+				currentConn.Tunnels = append(currentConn.Tunnels, tun)
+			}
+		}
 		// If no explicit metadata about use_password
 		if sxtMetadata == nil || sxtMetadata["use_password"] == "" {
 			// If no key file AND UsePassword wasn't explicitly set to false by config options
@@ -266,6 +291,13 @@ func (scm *SSHConfigManager) writeSSHConfig() error {
 			fmt.Fprintf(writer, "%sorder=%d\n", sxtCommentPrefix, conn.Order)
 		}
 
+		// Write tunnel metadata
+		for _, tun := range conn.Tunnels {
+			if tunBytes, err := json.Marshal(tun); err == nil {
+				fmt.Fprintf(writer, "%stunnel=%s\n", sxtCommentPrefix, string(tunBytes))
+			}
+		}
+
 		// Write SSH config
 		hostPattern := conn.HostPattern
 		if hostPattern == "" {
@@ -289,6 +321,33 @@ func (scm *SSHConfigManager) writeSSHConfig() error {
 		if conn.KeyFile != "" {
 			fmt.Fprintf(writer, "    IdentityFile %s\n", conn.KeyFile)
 		}
+
+		// Write OpenSSH port forward directives for enabled tunnels
+		for _, tun := range conn.Tunnels {
+			if tun.Enabled {
+				bindHost := tun.BindHost
+				if bindHost == "" {
+					bindHost = "127.0.0.1"
+				}
+				switch tun.Type {
+				case TunnelTypeLocal:
+					targetHost := tun.TargetHost
+					if targetHost == "" {
+						targetHost = "127.0.0.1"
+					}
+					fmt.Fprintf(writer, "    LocalForward %s:%d %s:%d\n", bindHost, tun.BindPort, targetHost, tun.TargetPort)
+				case TunnelTypeRemote:
+					targetHost := tun.TargetHost
+					if targetHost == "" {
+						targetHost = "127.0.0.1"
+					}
+					fmt.Fprintf(writer, "    RemoteForward %s:%d %s:%d\n", bindHost, tun.BindPort, targetHost, tun.TargetPort)
+				case TunnelTypeDynamic:
+					fmt.Fprintf(writer, "    DynamicForward %s:%d\n", bindHost, tun.BindPort)
+				}
+			}
+		}
+
 		fmt.Fprintf(writer, "\n")
 	}
 
@@ -398,7 +457,7 @@ func (scm *SSHConfigManager) GetConnection(id string) (SSHConnection, bool) {
 			} else {
 				keyringKey = "passphrase:" + id
 			}
-			
+
 			password, err := keyring.Get(sshKeyringService, keyringKey)
 			if err != nil {
 				log.Printf("Failed to retrieve password from keyring (key: %s): %v", keyringKey, err)

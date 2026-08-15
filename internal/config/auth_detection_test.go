@@ -16,7 +16,7 @@ func TestSSHConfigAuthDetection(t *testing.T) {
 	configPath := filepath.Join(sshDir, "config")
 	configContent := `# Password authentication (no IdentityFile)
 Host password-server
-    HostName 10.10.8.25
+    HostName 192.168.1.50
     User admin
     Port 22
 

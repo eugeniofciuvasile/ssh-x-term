@@ -222,3 +222,8 @@ func (c *Client) NewSession() (*ssh.Session, error) {
 
 	return c.conn.NewSession()
 }
+
+// SSHClient returns the underlying *ssh.Client
+func (c *Client) SSHClient() *ssh.Client {
+	return c.conn
+}

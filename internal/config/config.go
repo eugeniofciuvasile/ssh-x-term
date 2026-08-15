@@ -143,7 +143,7 @@ func (cm *ConfigManager) GetConnection(id string) (SSHConnection, bool) {
 			} else {
 				keyringKey = "passphrase:" + id
 			}
-			
+
 			password, err := keyring.Get(keyringService, keyringKey)
 			if err != nil {
 				log.Printf("Failed to retrieve password from keyring (key: %s): %v", keyringKey, err)

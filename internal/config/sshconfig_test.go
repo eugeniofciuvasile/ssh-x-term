@@ -370,3 +370,93 @@ Host github.com
 		}
 	}
 }
+
+func TestSSHTunnelsConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	sshDir := filepath.Join(tmpDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		t.Fatalf("Failed to create .ssh directory: %v", err)
+	}
+
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", originalHome)
+
+	scm, err := NewSSHConfigManager()
+	if err != nil {
+		t.Fatalf("Failed to create SSH config manager: %v", err)
+	}
+
+	testConn := SSHConnection{
+		ID:       "host-tunnel-test",
+		Name:     "Bastion Host",
+		Host:     "bastion.example.com",
+		Port:     22,
+		Username: "admin",
+		Tunnels: []TunnelConfig{
+			{
+				ID:         "tun-1",
+				Name:       "Postgres Tunnel",
+				Type:       TunnelTypeLocal,
+				BindHost:   "127.0.0.1",
+				BindPort:   5432,
+				TargetHost: "10.0.0.15",
+				TargetPort: 5432,
+				AutoStart:  true,
+				Enabled:    true,
+			},
+			{
+				ID:        "tun-2",
+				Name:      "SOCKS5 Proxy",
+				Type:      TunnelTypeDynamic,
+				BindHost:  "127.0.0.1",
+				BindPort:  1080,
+				AutoStart: false,
+				Enabled:   true,
+			},
+			{
+				ID:         "tun-3",
+				Name:       "Remote Webhook",
+				Type:       TunnelTypeRemote,
+				BindHost:   "0.0.0.0",
+				BindPort:   8080,
+				TargetHost: "127.0.0.1",
+				TargetPort: 3000,
+				AutoStart:  false,
+				Enabled:    false,
+			},
+		},
+	}
+
+	if err := scm.AddConnection(testConn); err != nil {
+		t.Fatalf("Failed to add connection with tunnels: %v", err)
+	}
+
+	// Reload from disk
+	scm2, err := NewSSHConfigManager()
+	if err != nil {
+		t.Fatalf("Failed to create second manager: %v", err)
+	}
+	if err := scm2.Load(); err != nil {
+		t.Fatalf("Failed to load SSH config: %v", err)
+	}
+
+	loaded, found := scm2.GetConnection("host-tunnel-test")
+	if !found {
+		t.Fatalf("Connection not found")
+	}
+
+	if len(loaded.Tunnels) != 3 {
+		t.Fatalf("Expected 3 tunnels, got %d", len(loaded.Tunnels))
+	}
+
+	if loaded.Tunnels[0].Name != "Postgres Tunnel" || loaded.Tunnels[0].Type != TunnelTypeLocal || loaded.Tunnels[0].BindPort != 5432 {
+		t.Errorf("Unexpected tunnel 0: %+v", loaded.Tunnels[0])
+	}
+	if loaded.Tunnels[1].Name != "SOCKS5 Proxy" || loaded.Tunnels[1].Type != TunnelTypeDynamic || loaded.Tunnels[1].BindPort != 1080 {
+		t.Errorf("Unexpected tunnel 1: %+v", loaded.Tunnels[1])
+	}
+	if loaded.Tunnels[2].Name != "Remote Webhook" || loaded.Tunnels[2].Type != TunnelTypeRemote || loaded.Tunnels[2].TargetPort != 3000 {
+		t.Errorf("Unexpected tunnel 2: %+v", loaded.Tunnels[2])
+	}
+}

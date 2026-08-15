@@ -8,7 +8,9 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/tunnel"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
+	"github.com/zalando/go-keyring"
 )
 
 // Update handles updates to the UI model
@@ -181,11 +183,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errorMessage = fmt.Sprintf("Failed to pin connection: %s", err)
 				return m, nil
 			}
-			
+
 			// Refresh list from backend to get latest state
 			conns := m.storageBackend.ListConnections()
 			m.connectionList.SetConnections(conns)
-			
+
 			// Try to find the new index of the toggled connection to keep it highlighted
 			newIdx := 0
 			for i, c := range m.connectionList.Connections {
@@ -195,7 +197,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.connectionList.List().Select(newIdx)
-			
+
 			return m, nil
 		}
 		return m, nil
@@ -232,7 +234,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if connInBackend != nil && aboveInBackend != nil {
 					// Swap orders
 					connInBackend.Order, aboveInBackend.Order = aboveInBackend.Order, connInBackend.Order
-					
+
 					// If orders were equal (default 0), we need to initialize them properly
 					if connInBackend.Order == aboveInBackend.Order {
 						// Assign orders based on current list position to everything
@@ -296,7 +298,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if connInBackend != nil && belowInBackend != nil {
 					connInBackend.Order, belowInBackend.Order = belowInBackend.Order, connInBackend.Order
-					
+
 					if connInBackend.Order == belowInBackend.Order {
 						for i := range conns {
 							for j, sc := range currentSorted {
@@ -373,6 +375,65 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case components.ToggleOpenInNewTerminalMsg:
 		return m, nil
 
+	case components.TunnelAddRequestMsg:
+		m.tunnelForm = components.NewTunnelForm(msg.Connection, nil)
+		m.tunnelForm.SetSize(m.width, m.height)
+		m.state = StateAddTunnel
+		return m, m.tunnelForm.Init()
+
+	case components.TunnelEditRequestMsg:
+		m.tunnelForm = components.NewTunnelForm(msg.Connection, &msg.Tunnel)
+		m.tunnelForm.SetSize(m.width, m.height)
+		m.state = StateEditTunnel
+		return m, m.tunnelForm.Init()
+
+	case components.TunnelDeleteRequestMsg:
+		conn := msg.Connection
+		for i, tun := range conn.Tunnels {
+			if tun.ID == msg.TunnelID {
+				_ = tunnel.GetEngine().StopTunnel(tun.ID)
+				conn.Tunnels = append(conn.Tunnels[:i], conn.Tunnels[i+1:]...)
+				break
+			}
+		}
+		if m.storageBackend != nil {
+			_ = m.storageBackend.EditConnection(conn)
+		}
+		m.currentTunnelConn = &conn
+		m.tunnelManager = components.NewTunnelManager(conn)
+		m.tunnelManager.SetSize(m.width, m.listHeight())
+		return m, nil
+
+	case components.TunnelToggleMsg:
+		conn := msg.Connection
+		if conn.UsePassword && conn.Password == "" {
+			if pass, err := keyring.Get("ssh-x-term", conn.ID); err == nil {
+				conn.Password = pass
+			}
+		}
+		_, err := tunnel.GetEngine().ToggleTunnel(conn, msg.Tunnel)
+		if err != nil {
+			m.errorMessage = fmt.Sprintf("Tunnel error: %s", err)
+		}
+		m.currentTunnelConn = &conn
+		m.tunnelManager = components.NewTunnelManager(conn)
+		m.tunnelManager.SetSize(m.width, m.listHeight())
+		return m, nil
+
+	case components.TunnelOpenGraphMsg:
+		conn := msg.Connection
+		if conn.UsePassword && conn.Password == "" {
+			if pass, err := keyring.Get("ssh-x-term", conn.ID); err == nil {
+				conn.Password = pass
+			}
+		}
+		m.currentTunnelConn = &conn
+		m.tunnelGraph = components.NewTunnelGraphView(conn, msg.SelectedIdx)
+		contentHeight := max(m.height-headerHeight-footerHeight, 3)
+		m.tunnelGraph.SetSize(m.width, contentHeight)
+		m.state = StateTunnelGraph
+		return m, m.tunnelGraph.Init()
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -382,22 +443,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if activeComponent := m.getActiveComponent(); activeComponent != nil {
-			// For terminal and SCP manager states, we need to calculate the actual content area
-			// since they need to know the exact dimensions they have to work with
-			if m.state == StateSSHTerminal || m.state == StateSCPFileManager {
-				// The component gets the full content area between header and footer
-				contentHeight := max(m.height-headerHeight-footerHeight,
-					// Minimum viable height
-					12)
+			contentHeight := max(m.height-headerHeight-footerHeight, 3)
 
-				adjustedMsg := tea.WindowSizeMsg{
-					Width:  m.width,
-					Height: contentHeight,
-				}
-				model, cmd := activeComponent.Update(adjustedMsg)
-				return m, m.handleComponentResult(model, cmd)
+			adjustedMsg := tea.WindowSizeMsg{
+				Width:  m.width,
+				Height: contentHeight,
 			}
-			model, cmd := activeComponent.Update(msg)
+			model, cmd := activeComponent.Update(adjustedMsg)
 			return m, m.handleComponentResult(model, cmd)
 		}
 
@@ -503,7 +555,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if ok {
 							count := 0
 							var lastPass, lastLabel string
-							
+
 							if fullConn.Password != "" {
 								count++
 								lastPass = fullConn.Password
@@ -551,12 +603,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						_, sizeCmd := m.scpManager.Update(sizeMsg)
 						return m, tea.Batch(initCmd, sizeCmd)
 					}
+				case msg.String() == "t" || msg.String() == "T":
+					// Open Tunnel Manager for highlighted connection
+					if selectedItem := m.connectionList.HighlightedConnection(); selectedItem != nil {
+						conn := *selectedItem
+						if m.storageBackend != nil {
+							if fullConn, ok := m.storageBackend.GetConnection(selectedItem.ID); ok {
+								conn = fullConn
+							}
+						}
+						m.currentTunnelConn = &conn
+						m.tunnelManager = components.NewTunnelManager(conn)
+						m.tunnelManager.SetSize(m.width, m.listHeight())
+						m.state = StateTunnelManager
+						return m, nil
+					}
 				case msg.String() == "o":
 					if m.connectionList != nil {
 						m.connectionList.ToggleOpenInNewTerminal()
 						return m, nil
 					}
 				}
+			}
+		case StateTunnelManager:
+			if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
+				m.tunnelManager = nil
+				m.currentTunnelConn = nil
+				m.state = StateConnectionList
+				if m.storageBackend != nil {
+					m.connectionList.SetConnections(m.storageBackend.ListConnections())
+				}
+				return m, nil
+			}
+		case StateTunnelGraph:
+			if key.Matches(msg, key.NewBinding(key.WithKeys("esc", "q", "v", "g"))) {
+				m.tunnelGraph = nil
+				m.state = StateTunnelManager
+				return m, nil
 			}
 		case StateCollectionSelect:
 			if m.bitwardenCollectionList != nil {

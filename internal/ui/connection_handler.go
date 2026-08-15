@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
+	"github.com/eugeniofciuvasile/ssh-x-term/internal/tunnel"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/ui/components"
 	"github.com/zalando/go-keyring"
 )
@@ -39,6 +40,19 @@ func (m *Model) handleSelectedConnection(conn *config.SSHConnection) tea.Cmd {
 		}
 		conn.Password = password // Set the password from the keyring
 		log.Printf("Password successfully retrieved for connection ID: %s", conn.ID)
+	}
+
+	// Auto-start any configured auto-start tunnels in background
+	for _, tun := range conn.Tunnels {
+		if tun.AutoStart && tun.Enabled {
+			tunCopy := tun
+			connCopy := *conn
+			go func() {
+				if err := tunnel.GetEngine().StartTunnel(connCopy, tunCopy); err != nil {
+					log.Printf("[AutoTunnel] Failed to start tunnel %s: %v", tunCopy.Name, err)
+				}
+			}()
+		}
 	}
 
 	openInNewWindow := m.connectionList.OpenInNewTerminal()
