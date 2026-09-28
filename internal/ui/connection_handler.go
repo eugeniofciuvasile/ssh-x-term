@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eugeniofciuvasile/ssh-x-term/internal/config"
@@ -145,14 +146,19 @@ func (m *Model) launchTmuxWindow(conn *config.SSHConnection, sshArgs []string) {
 		execPath = "sxt" // Fallback to assuming it's in PATH
 	}
 
+	// Escape single quotes for safe shell command construction
+	safeExecPath := strings.ReplaceAll(execPath, "'", "'\\''")
+	safeConnID := strings.ReplaceAll(conn.ID, "'", "'\\''")
+
 	// Build command that preserves SSH_AUTH_SOCK
 	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
 	var sxtCommand string
 	if sshAuthSock != "" {
+		safeAuthSock := strings.ReplaceAll(sshAuthSock, "'", "'\\''")
 		// Export SSH_AUTH_SOCK in the new window's environment
-		sxtCommand = fmt.Sprintf("export SSH_AUTH_SOCK='%s' && %s -c %s", sshAuthSock, execPath, conn.ID)
+		sxtCommand = fmt.Sprintf("export SSH_AUTH_SOCK='%s' && '%s' -c '%s'", safeAuthSock, safeExecPath, safeConnID)
 	} else {
-		sxtCommand = fmt.Sprintf("%s -c %s", execPath, conn.ID)
+		sxtCommand = fmt.Sprintf("'%s' -c '%s'", safeExecPath, safeConnID)
 	}
 
 	windowName := fmt.Sprintf("%s@%s:%d - %s", conn.Username, conn.Host, conn.Port, conn.Name)
