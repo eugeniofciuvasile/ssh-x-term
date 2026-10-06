@@ -2,6 +2,7 @@ package components
 
 import (
 	"fmt"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -155,18 +156,44 @@ func (tf *TunnelForm) updatePortStatus() {
 		return
 	}
 
+	if tf.tunnelType == config.TunnelTypeRemote {
+		tf.portStatus = lipgloss.NewStyle().Foreground(colorSubText).Render("Remote bind checked on activation")
+		return
+	}
+
 	host := tf.inputs[1].Value()
 	if host == "" {
 		host = "127.0.0.1"
 	}
 
+	if !canProbeLocalBindHost(host) {
+		tf.portStatus = lipgloss.NewStyle().Foreground(colorSubText).Render("Finish host to check port")
+		return
+	}
+
 	res := tunnel.CheckLocalPort(host, port)
 	if res.Available {
 		tf.portStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Render(fmt.Sprintf("✓ Port %d is available", port))
-	} else {
+	} else if isPortInUseError(res.Error) {
 		next := tunnel.FindNextAvailablePort(host, port+1)
 		tf.portStatus = lipgloss.NewStyle().Foreground(colorError).Render(fmt.Sprintf("⚠ Port %d is in use! Next free: %d", port, next))
+	} else {
+		tf.portStatus = lipgloss.NewStyle().Foreground(colorError).Render("Cannot bind to this host")
 	}
+}
+
+func canProbeLocalBindHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	_, err := netip.ParseAddr(host)
+	return err == nil
+}
+
+func isPortInUseError(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "address already in use")
 }
 
 // Update handles user key input, cycling options, and form submission
@@ -192,6 +219,7 @@ func (tf *TunnelForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case config.TunnelTypeDynamic:
 				tf.tunnelType = config.TunnelTypeLocal
 			}
+			tf.updatePortStatus()
 			return tf, nil
 
 		case "ctrl+a":
